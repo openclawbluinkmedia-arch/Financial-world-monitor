@@ -1,0 +1,25 @@
+version: "3.9"
+
+services:
+  postgres:
+    extends:
+      file: infra/docker-compose.yml
+      service: postgres
+
+  redis:
+    extends:
+      file: infra/docker-compose.yml
+      service: redis
+
+  backend:
+    extends:
+      file: infra/docker-compose.yml
+      service: backend
+
+  frontend:
+    extends:
+      file: infra/docker-compose.yml
+      service: frontend
+
+volumes:
+  pgdata:
