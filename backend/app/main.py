@@ -9,6 +9,7 @@ from app.api.health import router as health_router
 from app.config import get_settings
 from app.modules.ingestion import router as ingestion_router
 from app.modules.evidence import router as evidence_router
+from app.modules.intelligence import router as intelligence_router
 
 settings = get_settings()
 
@@ -35,6 +36,7 @@ app.add_middleware(
 app.include_router(health_router, prefix="/api", tags=["health"])
 app.include_router(ingestion_router, prefix="/api", tags=["ingestion"])
 app.include_router(evidence_router, prefix="/api", tags=["evidence"])
+app.include_router(intelligence_router, prefix="/api", tags=["intelligence"])
 
 
 @app.get("/")
