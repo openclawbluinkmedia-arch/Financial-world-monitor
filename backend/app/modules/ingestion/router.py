@@ -1,31 +1,14 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
-from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, func, desc
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.modules.ingestion.connectors import (
-    BSEConnector,
-    BSEConfig,
-    GDELTConnector,
-    GDELTConfig,
-    NSEConnector,
-    NSEConfig,
-    RBIConnector,
-    RBIConfig,
-    SEBIConnector,
-    SEBIConfig,
-    WorldMonitorConnector,
-    WorldMonitorConfig,
-)
-from app.modules.ingestion.models import IngestionRun, ConnectorHealth, ConnectorStatus
+from app.modules.ingestion.models import IngestionRun
 from app.modules.ingestion.service import IngestionService
-from app.modules.sources.models import Source, SourceType
 
 router = APIRouter(prefix="/ingestion", tags=["ingestion"])
 

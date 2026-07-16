@@ -7,9 +7,11 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.health import router as health_router
 from app.config import get_settings
-from app.modules.ingestion import router as ingestion_router
 from app.modules.evidence import router as evidence_router
+from app.modules.ingestion import router as ingestion_router
 from app.modules.intelligence import router as intelligence_router
+from app.modules.auth.router import router as auth_router
+from app.modules.portfolios import router as portfolios_router
 
 settings = get_settings()
 
@@ -25,9 +27,10 @@ app = FastAPI(
     description="Privacy-first, self-hostable B2B financial-intelligence platform.",
 )
 
+allowed_origins = [o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins if allowed_origins else ["http://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -36,7 +39,9 @@ app.add_middleware(
 app.include_router(health_router, prefix="/api", tags=["health"])
 app.include_router(ingestion_router, prefix="/api", tags=["ingestion"])
 app.include_router(evidence_router, prefix="/api", tags=["evidence"])
+app.include_router(auth_router, prefix="/api", tags=["auth"])
 app.include_router(intelligence_router, prefix="/api", tags=["intelligence"])
+app.include_router(portfolios_router, prefix="/api", tags=["portfolios"])
 
 
 @app.get("/")

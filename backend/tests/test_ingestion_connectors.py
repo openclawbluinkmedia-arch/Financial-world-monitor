@@ -1,20 +1,15 @@
 from __future__ import annotations
 
-import logging
-from datetime import datetime, timezone
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.modules.evidence.models import Jurisdiction, SourceType
-from app.modules.ingestion.connectors.rbi import RBIConnector, RBIConfig
-from app.modules.ingestion.connectors.sebi import SEBIConnector, SEBIConfig
-from app.modules.ingestion.connectors.bse import BSEConnector, BSEConfig
-from app.modules.ingestion.connectors.nse import NSEConnector, NSEConfig
-from app.modules.ingestion.connectors.gdelt import GDELTConnector, GDELTConfig
-from app.modules.ingestion.connectors.world_monitor import WorldMonitorConnector, WorldMonitorConfig
-from app.modules.ingestion.connectors.base import ConnectorConfig
+from app.modules.ingestion.connectors.bse import BSEConfig, BSEConnector
+from app.modules.ingestion.connectors.gdelt import GDELTConfig, GDELTConnector
+from app.modules.ingestion.connectors.nse import NSEConfig, NSEConnector
+from app.modules.ingestion.connectors.rbi import RBIConfig, RBIConnector
+from app.modules.ingestion.connectors.sebi import SEBIConfig, SEBIConnector
+from app.modules.ingestion.connectors.world_monitor import WorldMonitorConfig, WorldMonitorConnector
 
 
 @pytest.mark.asyncio
@@ -129,7 +124,7 @@ async def test_world_monitor_health_check_mock():
     connector = WorldMonitorConnector(config)
 
     with patch.object(connector, '_get') as mock_get:
-        mock_response = AsyncMock()
+        mock_response = MagicMock()
         mock_response.json.return_value = {"status": "healthy"}
         mock_get.return_value = mock_response
 

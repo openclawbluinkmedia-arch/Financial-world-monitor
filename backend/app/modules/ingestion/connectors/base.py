@@ -11,14 +11,14 @@ from urllib.parse import urlparse
 
 import httpx
 from tenacity import (
+    before_sleep_log,
     retry,
+    retry_if_exception_type,
     stop_after_attempt,
     wait_exponential_jitter,
-    retry_if_exception_type,
-    before_sleep_log,
 )
 
-from app.modules.evidence.models import Evidence, SourceType, Jurisdiction
+from app.modules.evidence.models import Jurisdiction, SourceType
 
 logger = logging.getLogger("fios.ingestion.connectors")
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -111,10 +111,16 @@ async def test_log_deduplication(mock_db):
 
 @pytest.mark.asyncio
 async def test_ingestion_service_process_item_exact_dup(mock_db, sample_item):
-    mock_db.execute = AsyncMock()
-    mock_db.execute.return_value.scalar_one_or_none.return_value = None
-    mock_db.execute.return_value.scalars.return_value.all.return_value = []
+    # Create async mock for execute that returns proper results
+    async def execute_side_effect(*args, **kwargs):
+        mock_result = MagicMock()
+        # First call (exact duplicate check) - no existing
+        mock_result.scalar_one_or_none.return_value = None
+        # Second call (near duplicate check) - no existing
+        mock_result.scalars.return_value.all.return_value = []
+        return mock_result
 
+    mock_db.execute = AsyncMock(side_effect=execute_side_effect)
     mock_db.flush = AsyncMock()
 
     service = IngestionService(mock_db)
@@ -125,7 +131,14 @@ async def test_ingestion_service_process_item_exact_dup(mock_db, sample_item):
 
     # Second call with same content hash - should log dedup
     existing_evidence = MagicMock(id=uuid.uuid4())
-    mock_db.execute.return_value.scalar_one_or_none.return_value = existing_evidence
+
+    async def execute_side_effect2(*args, **kwargs):
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = existing_evidence
+        mock_result.scalars.return_value.all.return_value = []
+        return mock_result
+
+    mock_db.execute = AsyncMock(side_effect=execute_side_effect2)
     await service._process_item(sample_item, uuid.uuid4())
 
 
@@ -176,15 +189,18 @@ async def test_ingestion_service_run_ingestion(mock_db):
 
     mock_db.add = MagicMock()
     mock_db.flush = AsyncMock()
-    mock_db.execute = AsyncMock()
-    mock_db.execute.return_value.scalar_one_or_none.return_value = None
-    mock_db.execute.return_value.scalars.return_value.all.return_value = []
+
+    async def execute_side_effect(*args, **kwargs):
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_result.scalars.return_value.all.return_value = []
+        return mock_result
+
+    mock_db.execute = AsyncMock(side_effect=execute_side_effect)
 
     run = await service.run_ingestion(uuid.uuid4(), "test")
     assert run.status in ("completed", "partial")
     assert run.items_ingested >= 0
 
 
-@pytest.mark.asyncio
-async def test_vector_similarity_search():
-    pass
+

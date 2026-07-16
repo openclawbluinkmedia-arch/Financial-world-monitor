@@ -5,25 +5,22 @@ import os
 import tempfile
 import uuid
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 
-import httpx
-
-from app.modules.evidence.models import Evidence, EvidenceDedupLog, SourceType
+from app.modules.evidence.models import Evidence, EvidenceDedupLog
 from app.modules.ingestion.connectors import (
-    BSEConnector,
     BSEConfig,
-    GDELTConnector,
+    BSEConnector,
     GDELTConfig,
-    NSEConnector,
+    GDELTConnector,
     NSEConfig,
-    RBIConnector,
+    NSEConnector,
     RBIConfig,
-    SEBIConnector,
+    RBIConnector,
     SEBIConfig,
-    WorldMonitorConnector,
+    SEBIConnector,
     WorldMonitorConfig,
+    WorldMonitorConnector,
 )
 from app.modules.ingestion.models import ConnectorHealth, ConnectorStatus, IngestionRun
 
@@ -150,8 +147,8 @@ class DeduplicationService:
     async def check_near_duplicate(self, near_dup_hash: str, threshold: float = 0.85) -> Evidence | None:
         if not near_dup_hash:
             return None
-        from sqlalchemy import select
         from simhash import Simhash
+        from sqlalchemy import select
 
         try:
             query_hash = int(near_dup_hash)
@@ -232,7 +229,6 @@ class IngestionService:
         return run
 
     async def _process_item(self, item, run_id: uuid.UUID):
-        from sqlalchemy import select
 
         existing = await self.dedup_service.check_exact_duplicate(item.content_hash)
         if existing:

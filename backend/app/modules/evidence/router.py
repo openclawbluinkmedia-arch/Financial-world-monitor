@@ -1,16 +1,16 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone, timedelta
+from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select, func, desc, or_, text
+from sqlalchemy import desc, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.modules.evidence.models import Evidence, Jurisdiction, SourceType, EvidenceDedupLog
-from app.modules.ingestion.models import ConnectorHealth, ConnectorStatus
+from app.modules.evidence.models import Evidence, EvidenceDedupLog, Jurisdiction, SourceType
+from app.modules.ingestion.models import ConnectorHealth
 
 router = APIRouter(prefix="/evidence", tags=["evidence"])
 

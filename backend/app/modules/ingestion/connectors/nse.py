@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 import logging
-import uuid
 from datetime import datetime, timezone
-from typing import Any
 
-import httpx
-
-from app.modules.evidence.models import Jurisdiction, SourceType
-from app.modules.ingestion.connectors.base import BaseConnector, ConnectorConfig, ConnectorResult, IngestionItem
+from app.modules.evidence.models import Jurisdiction
+from app.modules.ingestion.connectors.base import (
+    BaseConnector,
+    ConnectorConfig,
+    ConnectorResult,
+    IngestionItem,
+)
 
 logger = logging.getLogger("fios.ingestion.connectors.nse")
 

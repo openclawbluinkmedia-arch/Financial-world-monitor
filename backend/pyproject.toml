@@ -18,27 +18,32 @@ dependencies = [
     "passlib[bcrypt]>=1.7.4",
     "python-multipart>=0.0.12",
     "pgvector>=0.3.0",
-    "structlog>=24.4.0",
     "feedparser>=6.0.11",
-    "docling>=2.15.0",
-    "paddlepaddle>=2.6.0",
-    "paddleocr>=2.8.0",
     "tenacity>=8.3.0",
-    "apscheduler>=3.10.4",
-    "python-dateutil>=2.9.0",
     "simhash>=2.0.0",
     "xxhash>=3.5.0",
-    "gliner>=1.0.0",
-    "transformers>=4.40.0",
-    "torch>=2.3.0",
     "rapidfuzz>=3.5.0",
-    "networkx>=3.2",
-    "openbb>=2.0.0",
     "numpy>=1.26.0",
     "pandas>=2.2.0",
+    "python-dateutil>=2.9.0",
+    "pyarrow>=17.0.0",
 ]
 
 [project.optional-dependencies]
+ai = [
+    "sentence-transformers>=3.3.0",
+    "gliner>=1.0.0",
+    "transformers>=4.40.0",
+    "torch>=2.3.0",
+]
+documents = [
+    "docling>=2.15.0",
+    "paddlepaddle>=2.6.0",
+    "paddleocr>=2.8.0",
+]
+prod = [
+    "fios-backend[ai,documents]",
+]
 dev = [
     "pytest>=8.3.0",
     "pytest-asyncio>=0.25.0",

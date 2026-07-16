@@ -1,0 +1,9 @@
+ticker,exchange,company_name,sector,industry,country,quantity,weight,isin,avg_price
+HDFCBANK,NSE,HDFC Bank,Financials,Banks,IN,100,25.0,INE040A01034,1600
+RELIANCE,NSE,Reliance Industries,Energy,Oil & Gas,IN,50,20.0,INE002A01018,2800
+TCS,NSE,Tata Consultancy Services,Information Technology,IT Services,IN,30,15.0,INE467B01029,3900
+ITC,NSE,ITC Limited,FMCG,FMCG,IN,200,15.0,INE154A01025,430
+SBIN,NSE,State Bank of India,Financials,Banks,IN,150,10.0,INE062A01020,780
+LT,NSE,Larsen & Toubro,Industrials,Construction,IN,20,8.0,INE018A01030,3500
+MARUTI,NSE,Maruti Suzuki India,Consumer Discretionary,Automobiles,IN,10,5.0,INE585B01010,11000
+INFY,NSE,Infosys,Information Technology,IT Services,IN,25,2.0,INE009A01021,1700

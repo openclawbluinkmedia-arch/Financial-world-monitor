@@ -1,15 +1,13 @@
 from __future__ import annotations
 
 import logging
-import uuid
 import re
 from typing import Any
 
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.entities.models import SecurityMaster, CompanyAlias, Sector, Industry, Exchange
-from app.modules.intelligence.validation import ValidationService, ConfidenceService
+from app.modules.entities.models import CompanyAlias, SecurityMaster
 
 logger = logging.getLogger("fios.intelligence.entity_extractor")
 
@@ -257,7 +255,7 @@ class SecurityMasterService:
 
     async def resolve_company(self, name: str) -> dict[str, Any] | None:
         """Fuzzy resolve company name"""
-        from app.modules.entities.models import SecurityMaster, CompanyAlias
+        from app.modules.entities.models import SecurityMaster
 
         # Try exact match first
         stmt = select(SecurityMaster).where(

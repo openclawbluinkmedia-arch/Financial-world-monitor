@@ -4,11 +4,10 @@ import logging
 import uuid
 from typing import Any
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.evidence.models import Evidence
-from app.modules.intelligence.models import ValidationResult, ConfidenceScore
+from app.modules.intelligence.models import ConfidenceScore, ValidationResult
 
 logger = logging.getLogger("fios.intelligence.validation")
 
@@ -45,7 +44,7 @@ class ValidationService:
 
         # Overall
         result.passed = (
-            result.citation_valid
+            result.citations_valid
             and result.numerically_consistent
             and not result.has_contradictions
             and not result.has_missing_evidence
@@ -74,7 +73,7 @@ class ValidationService:
             elif evidence.is_mock:
                 missing.append(f"Evidence {ref} is mock data")
 
-        result.citation_valid = len(invalid) == 0
+        result.citations_valid = len(invalid) == 0
         result.invalid_citations = invalid
         result.missing_citations = missing
 
@@ -213,7 +212,7 @@ class ValidationService:
             reasons.append(f"Confidence too low: {event.get('confidence', 0)}")
 
         # Many validation failures
-        if not result.citation_valid or result.has_contradictions or result.has_missing_evidence:
+        if not result.citations_valid or result.has_contradictions or result.has_missing_evidence:
             reasons.append("Validation failures detected")
 
         result.abstained = len(reasons) > 0
@@ -222,7 +221,7 @@ class ValidationService:
     def _compute_validation_score(self, result: ValidationResult) -> float:
         """Compute overall validation score 0-1"""
         score = 1.0
-        if not result.citation_valid:
+        if not result.citations_valid:
             score -= 0.4
         if not result.numerically_consistent:
             score -= 0.2

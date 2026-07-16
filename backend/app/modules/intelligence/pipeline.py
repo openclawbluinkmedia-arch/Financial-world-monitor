@@ -5,21 +5,16 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.evidence.models import Evidence, Jurisdiction, SourceType
 from app.modules.intelligence import (
-    EventType,
-    ImpactDirection,
-    ImpactHorizon,
-    IntelligenceEvent,
     CausalGraphEdge,
-    KnowledgeGraphNode,
+    IntelligenceEvent,
 )
 from app.modules.intelligence.classification import EventClassifier, ImpactReasoner
 from app.modules.intelligence.entity_extractor import EntityExtractor, SecurityMasterService
-from app.modules.intelligence.validation import ValidationService, ConfidenceService
+from app.modules.intelligence.validation import ConfidenceService, ValidationService
 
 logger = logging.getLogger("fios.intelligence.pipeline")
 
@@ -231,7 +226,6 @@ class IntelligencePipeline:
         entities: list[dict[str, Any]],
     ) -> list[Evidence]:
         """Retrieve related evidence using bge-m3 embeddings"""
-        from app.ai.embeddings import embed_query
         from sqlalchemy import text
 
         if not evidence.embedding:

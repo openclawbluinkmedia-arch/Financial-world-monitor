@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 from .models import (
+    CausalEdgeType,
+    CausalGraphEdge,
+    ConfidenceScore,
     EventType,
     ImpactDirection,
     ImpactHorizon,
-    CausalEdgeType,
     IntelligenceEvent,
-    CausalGraphEdge,
     KnowledgeGraphNode,
     ValidationResult,
-    ConfidenceScore,
 )
 from .router import router
 

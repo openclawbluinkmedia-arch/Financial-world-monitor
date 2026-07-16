@@ -8,21 +8,25 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from alembic import context
 from app.config import get_settings
 from app.database import Base
-from app.modules.alerts.models import Alert  # noqa: F401
-from app.modules.audit.models import AuditLog  # noqa: F401
-
 # Import all models so Alembic can detect them
-from app.modules.auth.models import User  # noqa: F401
-from app.modules.documents.models import Document  # noqa: F401
-from app.modules.entities.models import Entity  # noqa: F401
-from app.modules.events.models import Event  # noqa: F401
-from app.modules.evidence.models import Evidence  # noqa: F401
-from app.modules.graph.models import GraphEdge  # noqa: F401
-from app.modules.impact.models import Impact  # noqa: F401
-from app.modules.ingestion.models import IngestionRun  # noqa: F401
-from app.modules.portfolios.models import Portfolio  # noqa: F401
-from app.modules.sources.models import Source  # noqa: F401
-from app.modules.tenants.models import Tenant  # noqa: F401
+from app.modules.audit.models import AuditLog  # noqa: F401
+from app.modules.entities.models import CompanyAlias, SecurityMaster  # noqa: F401
+from app.modules.evidence.models import Evidence, EvidenceDedupLog  # noqa: F401
+from app.modules.ingestion.models import ConnectorHealth, IngestionRun  # noqa: F401
+from app.modules.intelligence.models import (  # noqa: F401
+    CausalGraphEdge,
+    ConfidenceScore,
+    IntelligenceEvent,
+    KnowledgeGraphNode,
+    ValidationResult,
+)
+from app.modules.portfolios.models import (  # noqa: F401
+    AlertPreference,
+    Holding,
+    HoldingImpact,
+    Portfolio,
+    PortfolioAlert,
+)
 
 config = context.config
 settings = get_settings()

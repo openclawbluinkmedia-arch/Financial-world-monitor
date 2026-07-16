@@ -4,22 +4,22 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query, HTTPException
-from sqlalchemy import select, desc, func, or_, text
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
+from app.modules.evidence.models import Evidence
 from app.modules.intelligence import (
+    CausalGraphEdge,
+    ConfidenceScore,
     EventType,
     ImpactDirection,
     ImpactHorizon,
     IntelligenceEvent,
-    CausalGraphEdge,
     KnowledgeGraphNode,
     ValidationResult,
-    ConfidenceScore,
 )
-from app.modules.evidence.models import Evidence
 from app.modules.intelligence.pipeline import IntelligencePipeline
 
 router = APIRouter(prefix="/intelligence", tags=["intelligence"])
@@ -151,7 +151,7 @@ async def get_intelligence_event(
             "passed": validation.passed if validation else None,
             "abstained": validation.abstained if validation else None,
             "abstention_reason": validation.abstention_reason if validation else None,
-            "citation_valid": validation.citation_valid if validation else None,
+            "citations_valid": validation.citations_valid if validation else None,
             "numerically_consistent": validation.numerically_consistent if validation else None,
             "has_contradictions": validation.has_contradictions if validation else None,
             "has_missing_evidence": validation.has_missing_evidence if validation else None,

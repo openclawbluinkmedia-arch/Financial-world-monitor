@@ -1,23 +1,25 @@
 from __future__ import annotations
 
-import pytest
 import uuid
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
+import httpx
+import pytest
+
+from app.modules.evidence.models import Jurisdiction, SourceType
 from app.modules.ingestion.connectors.base import (
     BaseConnector,
     ConnectorConfig,
     ConnectorResult,
     IngestionItem,
 )
-from app.modules.ingestion.connectors.rbi import RBIConnector, RBIConfig
-from app.modules.ingestion.connectors.sebi import SEBIConnector, SEBIConfig
-from app.modules.ingestion.connectors.bse import BSEConnector, BSEConfig
-from app.modules.ingestion.connectors.nse import NSEConnector, NSEConfig
-from app.modules.ingestion.connectors.gdelt import GDELTConnector, GDELTConfig
-from app.modules.ingestion.connectors.world_monitor import WorldMonitorConnector, WorldMonitorConfig
-from app.modules.evidence.models import Jurisdiction, SourceType
+from app.modules.ingestion.connectors.bse import BSEConfig, BSEConnector
+from app.modules.ingestion.connectors.gdelt import GDELTConfig, GDELTConnector
+from app.modules.ingestion.connectors.nse import NSEConfig, NSEConnector
+from app.modules.ingestion.connectors.rbi import RBIConfig, RBIConnector
+from app.modules.ingestion.connectors.sebi import SEBIConfig, SEBIConnector
+from app.modules.ingestion.connectors.world_monitor import WorldMonitorConfig, WorldMonitorConnector
 
 
 class MockConnector(BaseConnector):
@@ -208,13 +210,19 @@ async def test_retry_backoff():
     async def failing_request(method: str, url: str, **kwargs):
         nonlocal call_count
         call_count += 1
-        raise Exception("Network error")
+        raise httpx.RequestError("Network error")
 
-    with patch.object(connector, '_make_request', side_effect=failing_request):
-        try:
-            async with connector:
-                await connector._get("http://test.com")
-        except Exception:
-            pass
+    # Patch the underlying client instead of the retry-wrapped method
+    original_client = connector._client
+    mock_client = AsyncMock()
+    mock_client.request = failing_request
+    connector._client = mock_client
 
+    try:
+        async with connector:
+            await connector._get("http://test.com")
+    except Exception:
+        pass
+
+    connector._client = original_client
     assert call_count == 3

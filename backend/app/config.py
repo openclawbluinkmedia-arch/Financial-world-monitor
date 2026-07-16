@@ -33,11 +33,14 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql+asyncpg://fios:fios_secret@localhost:5432/fios"
     REDIS_URL: str = "redis://localhost:6379/0"
 
+    CORS_ORIGINS: str = "http://localhost:3000"
+
     SECRET_KEY: str = "insecure-default-change-me"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
 
     LOG_LEVEL: str = "INFO"
+    STRUCTURED_LOG: bool = True
 
     @property
     def is_dev(self) -> bool:
@@ -46,6 +49,10 @@ class Settings(BaseSettings):
     @property
     def is_customer(self) -> bool:
         return self.DEPLOYMENT_MODE == DeploymentMode.CUSTOMER
+
+    @property
+    def has_secure_secret(self) -> bool:
+        return self.SECRET_KEY not in ("insecure-default-change-me", "", "change-me")
 
 
 @lru_cache()
