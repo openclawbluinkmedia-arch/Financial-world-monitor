@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   postgres:
     extends:
@@ -15,11 +13,6 @@ services:
     extends:
       file: infra/docker-compose.yml
       service: backend
-
-  worldmonitor:
-    extends:
-      file: infra/docker-compose.yml
-      service: worldmonitor
 
   frontend:
     extends:
