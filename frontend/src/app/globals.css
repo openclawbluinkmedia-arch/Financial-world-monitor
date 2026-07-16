@@ -2,6 +2,120 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  font-family: system-ui, -apple-system, sans-serif;
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+@layer base {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #2e3140 transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  *::-webkit-scrollbar-thumb {
+    background-color: #2e3140;
+    border-radius: 3px;
+  }
+
+  body {
+    @apply bg-surface text-fg font-sans antialiased;
+  }
+
+  input, select, textarea {
+    @apply bg-surface-alt border-surface-border text-fg rounded-lg px-3 py-2 text-sm;
+    @apply focus:outline-none focus:ring-2 focus:ring-accent-blue focus:border-accent-blue;
+    @apply placeholder:text-fg-dim;
+  }
+
+  select {
+    @apply appearance-none bg-no-repeat pr-8;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%236b7080' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3E%3C/svg%3E");
+    background-position: right 0.5rem center;
+    background-size: 1.25rem;
+  }
+
+  table {
+    @apply w-full text-sm;
+  }
+  thead {
+    @apply text-fg-dim text-xs uppercase tracking-wider;
+  }
+  th {
+    @apply px-3 py-2.5 text-left font-medium;
+  }
+  td {
+    @apply px-3 py-2.5 text-fg;
+  }
+  tbody tr {
+    @apply border-t border-surface-border transition-colors;
+  }
+  tbody tr:hover {
+    @apply bg-surface-hover;
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-surface-card border border-surface-border rounded-lg shadow-card;
+  }
+  .card-header {
+    @apply px-4 py-3 border-b border-surface-border flex items-center justify-between;
+  }
+  .card-body {
+    @apply p-4;
+  }
+  .badge {
+    @apply inline-flex items-center px-2 py-0.5 text-2xs font-medium rounded-full;
+  }
+  .badge-green  { @apply badge bg-accent-green-bg text-accent-green border border-accent-green-border; }
+  .badge-red    { @apply badge bg-accent-red-bg text-accent-red border border-accent-red-border; }
+  .badge-amber  { @apply badge bg-accent-amber-bg text-accent-amber border border-accent-amber-border; }
+  .badge-blue   { @apply badge bg-accent-blue-bg text-accent-blue border border-accent-blue-border; }
+  .badge-purple { @apply badge bg-accent-purple-bg text-accent-purple border border-accent-purple-border; }
+  .badge-cyan   { @apply badge bg-accent-cyan-bg text-accent-cyan border border-accent-cyan-border; }
+  .badge-neutral { @apply badge bg-surface-alt text-fg-dim border-surface-border; }
+
+  .btn {
+    @apply inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors;
+  }
+  .btn-primary {
+    @apply btn bg-accent-blue text-white hover:bg-blue-600;
+  }
+  .btn-secondary {
+    @apply btn bg-surface-alt text-fg border border-surface-border hover:bg-surface-hover;
+  }
+  .btn-ghost {
+    @apply btn text-fg-muted hover:text-fg hover:bg-surface-hover;
+  }
+
+  .input {
+    @apply bg-surface-alt border border-surface-border text-fg rounded-lg px-3 py-2 text-sm;
+    @apply focus:outline-none focus:ring-2 focus:ring-accent-blue focus:border-accent-blue;
+    @apply placeholder:text-fg-dim;
+  }
+
+  .page-container {
+    @apply max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6;
+  }
+
+  .section-title {
+    @apply text-sm font-semibold text-fg-dim uppercase tracking-wider mb-3;
+  }
+
+  .fact-box {
+    @apply bg-surface-alt border border-surface-border rounded-lg p-4;
+  }
+
+  .analysis-box {
+    @apply bg-accent-blue-bg border border-accent-blue-border rounded-lg p-4;
+  }
+
+  .divider {
+    @apply border-t border-surface-border my-4;
+  }
 }

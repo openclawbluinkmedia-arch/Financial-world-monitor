@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,8 +11,8 @@ from app.database import get_db
 from app.modules.auth.models import User
 from app.modules.auth.service import (
     AuthContext,
+    AuthContextRequired,
     create_access_token,
-    get_auth_context,
     get_password_hash,
     verify_password,
 )
@@ -74,7 +74,7 @@ async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/me")
-async def get_me(auth: AuthContext = Depends(get_auth_context)):
+async def get_me(auth: AuthContext = Depends(AuthContextRequired())):
     return {
         "user_id": str(auth.user_id),
         "tenant_id": str(auth.tenant_id),

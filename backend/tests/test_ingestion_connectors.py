@@ -17,7 +17,6 @@ async def test_rbi_connector_initialization():
     config = RBIConfig()
     connector = RBIConnector(config)
     assert connector.connector_name == "rbi"
-    assert len(connector.rss_feeds) == 4
 
 
 @pytest.mark.asyncio
@@ -25,7 +24,7 @@ async def test_sebi_connector_initialization():
     config = SEBIConfig()
     connector = SEBIConnector(config)
     assert connector.connector_name == "sebi"
-    assert len(connector.rss_feeds) == 5
+    assert connector.config.sitemap_url == "https://www.sebi.gov.in/sitemap.xml"
 
 
 @pytest.mark.asyncio
@@ -33,6 +32,7 @@ async def test_bse_connector_initialization():
     config = BSEConfig()
     connector = BSEConnector(config)
     assert connector.connector_name == "bse"
+    assert "api.bseindia.com" in connector.api_url
 
 
 @pytest.mark.asyncio
@@ -64,13 +64,15 @@ async def test_rbi_health_check_mock():
 
     with patch.object(connector, '_get') as mock_get:
         mock_response = MagicMock()
-        mock_response.text = """<?xml version="1.0"?>
-        <rss><channel><title>RBI</title><item><title>Test</title><link>http://test.com</link></item></channel></rss>"""
+        mock_response.content = b"""<html><body>
+        <table class="tablebg"><tr><th>Title</th></tr>
+        <tr><td><a class="link2" href="test.aspx">Test Press Release</a></td></tr>
+        </table></body></html>"""
         mock_get.return_value = mock_response
 
         healthy, msg = await connector.health_check()
         assert healthy is True
-        assert "accessible" in msg
+        assert "RBI" in msg
 
 
 @pytest.mark.asyncio
@@ -80,8 +82,12 @@ async def test_sebi_health_check_mock():
 
     with patch.object(connector, '_get') as mock_get:
         mock_response = MagicMock()
+        mock_response.headers = {"content-type": "application/xml"}
         mock_response.text = """<?xml version="1.0"?>
-        <rss><channel><title>SEBI</title><item><title>Test</title><link>http://test.com</link></item></channel></rss>"""
+        <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+        <url><loc>https://www.sebi.gov.in/circular.html</loc></url>
+        </urlset>"""
+        mock_response.content = mock_response.text.encode()
         mock_get.return_value = mock_response
 
         healthy, msg = await connector.health_check()
@@ -94,9 +100,14 @@ async def test_nse_health_check_degraded():
     connector = NSEConnector(config)
 
     with patch.object(connector, '_get') as mock_get:
-        mock_response = AsyncMock()
-        mock_response.status_code = 403
-        mock_get.return_value = mock_response
+        # First call: session priming succeeds
+        priming_resp = MagicMock()
+        priming_resp.status_code = 200
+        priming_resp.raise_for_status = MagicMock()
+        # Second call: API returns 403
+        api_resp = MagicMock()
+        api_resp.status_code = 403
+        mock_get.side_effect = [priming_resp, api_resp]
 
         healthy, msg = await connector.health_check()
         assert healthy is False

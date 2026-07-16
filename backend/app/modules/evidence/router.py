@@ -9,6 +9,7 @@ from sqlalchemy import desc, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
+from app.modules.auth.service import AuthContext, AuthContextRequired
 from app.modules.evidence.models import Evidence, EvidenceDedupLog, Jurisdiction, SourceType
 from app.modules.ingestion.models import ConnectorHealth
 
@@ -28,6 +29,7 @@ async def list_evidence(
     date_to: datetime | None = None,
     search: str | None = None,
     db: AsyncSession = Depends(get_db),
+    auth: AuthContext = Depends(AuthContextRequired()),
 ):
     query = select(Evidence)
 
@@ -103,7 +105,10 @@ def serialize_evidence(e: Evidence) -> dict[str, Any]:
 
 
 @router.get("/stats/sources")
-async def source_stats(db: AsyncSession = Depends(get_db)):
+async def source_stats(
+    db: AsyncSession = Depends(get_db),
+    auth: AuthContext = Depends(AuthContextRequired()),
+):
     stmt = (
         select(
             Evidence.source_id,
@@ -141,7 +146,10 @@ async def source_stats(db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/health/connectors")
-async def connector_health(db: AsyncSession = Depends(get_db)):
+async def connector_health(
+    db: AsyncSession = Depends(get_db),
+    auth: AuthContext = Depends(AuthContextRequired()),
+):
     result = await db.execute(select(ConnectorHealth).order_by(ConnectorHealth.connector_name))
     connectors = result.scalars().all()
     return [
@@ -157,7 +165,10 @@ async def connector_health(db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/stats")
-async def evidence_stats(db: AsyncSession = Depends(get_db)):
+async def evidence_stats(
+    db: AsyncSession = Depends(get_db),
+    auth: AuthContext = Depends(AuthContextRequired()),
+):
     total = await db.execute(select(func.count(Evidence.id)))
     by_source = await db.execute(
         select(Evidence.source_name, func.count(Evidence.id)).group_by(Evidence.source_name)
@@ -182,7 +193,11 @@ async def evidence_stats(db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/{evidence_id}")
-async def get_evidence(evidence_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def get_evidence(
+    evidence_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    auth: AuthContext = Depends(AuthContextRequired()),
+):
     result = await db.execute(select(Evidence).where(Evidence.id == evidence_id))
     evidence = result.scalar_one_or_none()
     if not evidence:
@@ -230,6 +245,7 @@ async def search_similar(
     limit: int = Query(10, le=50),
     threshold: float = Query(0.7, ge=0.0, le=1.0),
     db: AsyncSession = Depends(get_db),
+    auth: AuthContext = Depends(AuthContextRequired()),
 ):
     from app.ai.embeddings import embed_query
 

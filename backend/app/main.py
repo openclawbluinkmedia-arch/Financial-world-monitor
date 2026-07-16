@@ -12,6 +12,7 @@ from app.modules.ingestion import router as ingestion_router
 from app.modules.intelligence import router as intelligence_router
 from app.modules.auth.router import router as auth_router
 from app.modules.portfolios import router as portfolios_router
+from app.modules.copilot import router as copilot_router
 
 settings = get_settings()
 
@@ -42,6 +43,7 @@ app.include_router(evidence_router, prefix="/api", tags=["evidence"])
 app.include_router(auth_router, prefix="/api", tags=["auth"])
 app.include_router(intelligence_router, prefix="/api", tags=["intelligence"])
 app.include_router(portfolios_router, prefix="/api", tags=["portfolios"])
+app.include_router(copilot_router, prefix="/api", tags=["copilot"])
 
 
 @app.get("/")

@@ -29,26 +29,34 @@ logger = logging.getLogger("fios.ingestion.service")
 
 class DocumentProcessor:
     def __init__(self):
-        self._docling_available = False
-        self._paddleocr_available = False
-        self._initialize_processors()
+        self._docling_converter = None
+        self._paddle_ocr = None
 
-    def _initialize_processors(self):
-        try:
-            from docling.document_converter import DocumentConverter
-            self._docling_converter = DocumentConverter()
-            self._docling_available = True
-            logger.info("Docling document processor initialized")
-        except Exception as e:
-            logger.warning(f"Docling not available: {e}")
+    @property
+    def docling_available(self) -> bool:
+        return self._docling_converter is not None
 
-        try:
-            from paddleocr import PaddleOCR
-            self._paddle_ocr = PaddleOCR(use_angle_cls=True, lang="en", use_gpu=False)
-            self._paddleocr_available = True
-            logger.info("PaddleOCR initialized")
-        except Exception as e:
-            logger.warning(f"PaddleOCR not available: {e}")
+    @property
+    def paddleocr_available(self) -> bool:
+        return self._paddle_ocr is not None
+
+    async def _ensure_docling(self):
+        if self._docling_converter is None:
+            try:
+                from docling.document_converter import DocumentConverter
+                self._docling_converter = DocumentConverter()
+                logger.info("Docling document processor initialized (lazy)")
+            except Exception as e:
+                logger.warning(f"Docling not available: {e}")
+
+    async def _ensure_paddleocr(self):
+        if self._paddle_ocr is None:
+            try:
+                from paddleocr import PaddleOCR
+                self._paddle_ocr = PaddleOCR(use_angle_cls=True, lang="en", use_gpu=False)
+                logger.info("PaddleOCR initialized (lazy)")
+            except Exception as e:
+                logger.warning(f"PaddleOCR not available: {e}")
 
     async def process_document(self, content: bytes, filename: str) -> dict[str, Any]:
         if filename.lower().endswith(".pdf"):
@@ -62,20 +70,22 @@ class DocumentProcessor:
             tmp_path = tmp.name
 
         try:
-            if self._docling_available:
+            await self._ensure_docling()
+            if self.docling_available:
                 result = self._docling_converter.convert(tmp_path)
                 text = result.document.export_to_text()
                 tables = result.document.export_to_dict().get("tables", [])
 
                 if self._is_scanned_or_empty(text):
                     logger.info(f"Document {filename} appears scanned, using PaddleOCR")
-                    if self._paddleocr_available:
+                    await self._ensure_paddleocr()
+                    if self.paddleocr_available:
                         text = await self._ocr_pdf(tmp_path)
 
                 return {
                     "text": text,
                     "tables": tables,
-                    "method": "docling" + ("+paddleocr" if self._paddleocr_available else ""),
+                    "method": "docling" + ("+paddleocr" if self.paddleocr_available else ""),
                 }
             else:
                 return {"text": "", "tables": [], "method": "none", "error": "No processor available"}
@@ -94,7 +104,7 @@ class DocumentProcessor:
         return False
 
     async def _ocr_pdf(self, pdf_path: str) -> str:
-        if not self._paddleocr_available:
+        if not self.paddleocr_available:
             return ""
 
         try:

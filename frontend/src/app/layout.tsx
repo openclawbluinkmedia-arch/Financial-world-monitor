@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import Sidebar from "./components/Sidebar";
 
 export const metadata: Metadata = {
   title: "FIOS — Financial Intelligence Operating System",
@@ -12,9 +13,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
-      <body className="min-h-screen bg-gray-50 text-gray-900">
-        {children}
+    <html lang="en" className="dark">
+      <body className="min-h-screen flex">
+        <Sidebar />
+        <main className="flex-1 min-w-0 overflow-auto">
+          {children}
+        </main>
       </body>
     </html>
   );

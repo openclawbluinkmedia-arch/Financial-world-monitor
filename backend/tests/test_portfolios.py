@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.main import app
+from app.modules.auth.service import AuthContext, create_access_token
 from app.modules.intelligence.models import (
     EventType,
     ImpactDirection,
@@ -27,6 +28,27 @@ from app.modules.portfolios.router import (
 )
 from app.modules.portfolios.service import PortfolioImpactService
 
+# ---------------------------------------------------------------------------
+# Shared test constants
+# ---------------------------------------------------------------------------
+TENANT_A = uuid.UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+TENANT_B = uuid.UUID("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+USER_A = uuid.UUID("00000000-0000-0000-0000-00000000000a")
+USER_B = uuid.UUID("00000000-0000-0000-0000-00000000000b")
+
+# ---------------------------------------------------------------------------
+# Auth helpers
+# ---------------------------------------------------------------------------
+
+def auth_header_for(tenant_id: uuid.UUID, role: str = "analyst") -> dict[str, str]:
+    token = create_access_token(str(USER_A), str(tenant_id), role)
+    return {"Authorization": f"Bearer {token}"}
+
+
+AUTH_HEADER_A = auth_header_for(TENANT_A)
+AUTH_HEADER_A_ADMIN = auth_header_for(TENANT_A, "admin")
+AUTH_HEADER_B = auth_header_for(TENANT_B)
+
 
 @pytest.fixture
 def mock_db():
@@ -39,7 +61,12 @@ def mock_client(mock_db):
     async def override_get_db():
         yield mock_db
 
+    async def override_get_auth_context():
+        return AuthContext(user_id=USER_A, tenant_id=TENANT_A, role="analyst")
+
+    from app.modules.auth.service import get_auth_context as _get_auth_context
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[_get_auth_context] = override_get_auth_context
     transport = ASGITransport(app=app)
     client = AsyncClient(transport=transport, base_url="http://test")
     yield client
@@ -127,8 +154,8 @@ class TestCSVValidation:
             await upload_portfolio_csv(
                 file=file_mock,
                 portfolio_name="Test",
-                tenant_id=uuid.uuid4(),
                 db=db_mock,
+                auth=AuthContext(user_id=USER_A, tenant_id=TENANT_A, role="analyst"),
             )
         assert "weight must equal 100%" in str(exc.value)
 
@@ -145,8 +172,8 @@ class TestCSVValidation:
             await upload_portfolio_csv(
                 file=file_mock,
                 portfolio_name="Test",
-                tenant_id=uuid.uuid4(),
                 db=db_mock,
+                auth=AuthContext(user_id=USER_A, tenant_id=TENANT_A, role="analyst"),
             )
 
     @pytest.mark.asyncio
@@ -173,8 +200,8 @@ class TestCSVValidation:
             await upload_portfolio_csv(
                 file=file_mock,
                 portfolio_name="Test",
-                tenant_id=uuid.uuid4(),
                 db=db_mock,
+                auth=AuthContext(user_id=USER_A, tenant_id=TENANT_A, role="analyst"),
             )
 
     @pytest.mark.asyncio
@@ -549,3 +576,175 @@ class TestPortfolioImpactService:
         assert service._severity_from_impact(0.0, ExposureClassification.INDIRECTLY_AFFECTED) == "warning"
         assert service._severity_from_impact(0.0, ExposureClassification.POSSIBLE_BENEFICIARY) == "info"
         assert service._severity_from_impact(0.0, ExposureClassification.NO_MATERIAL_EVIDENCE) == "info"
+
+
+# ---------------------------------------------------------------------------
+# Auth security — HTTP-level tests
+# ---------------------------------------------------------------------------
+
+class TestAuthSecurity:
+    """Every request must present a valid JWT. No token → 401."""
+
+    @pytest.mark.asyncio
+    async def test_no_token_portfolios_list(self):
+        app.dependency_overrides.clear()
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.get("/api/portfolios")
+        assert resp.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_no_token_portfolios_upload(self):
+        app.dependency_overrides.clear()
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/portfolios/upload",
+                params={"portfolio_name": "Test"},
+                files={"file": ("test.csv", io.BytesIO(b"a,b,c\n1,2,3"), "text/csv")},
+            )
+        assert resp.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_no_token_evidence_list(self):
+        app.dependency_overrides.clear()
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.get("/api/evidence/")
+        assert resp.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_no_token_intelligence_events(self):
+        app.dependency_overrides.clear()
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.get("/api/intelligence/events")
+        assert resp.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_no_token_ingestion_runs(self):
+        app.dependency_overrides.clear()
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.get("/api/ingestion/runs")
+        assert resp.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_health_public(self):
+        """Health endpoint should remain public."""
+        app.dependency_overrides.clear()
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.get("/api/health")
+        assert resp.status_code == 200
+
+
+class TestTenantIsolationHTTP:
+    """A user from tenant A cannot read/list/assess resources from tenant B."""
+
+    @pytest.mark.asyncio
+    async def test_cross_tenant_portfolio_returns_404(self, mock_db):
+        """Tenant A trying to get Tenant B's portfolio → 404."""
+        from app.modules.auth.service import get_auth_context as _get_auth_context
+
+        async def auth_as_a():
+            return AuthContext(user_id=USER_A, tenant_id=TENANT_A, role="analyst")
+
+        app.dependency_overrides[get_db] = lambda: mock_db
+        app.dependency_overrides[_get_auth_context] = auth_as_a
+
+        portfolio_b_id = uuid.uuid4()
+
+        # Portfolio query returns B's portfolio — but tenant_id filter in
+        # get_portfolio uses auth.tenant_id (TENANT_A), so the WHERE clause
+        # checks both id AND tenant_id.  Since the mock bypasses the actual
+        # WHERE, we need the mock to return None so the endpoint 404s.
+        mock_db.execute = AsyncMock(return_value=MagicMock(
+            scalar_one_or_none=MagicMock(return_value=None),
+        ))
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.get(f"/api/portfolios/{portfolio_b_id}")
+
+        assert resp.status_code == 404
+        app.dependency_overrides.clear()
+
+    @pytest.mark.asyncio
+    async def test_cross_tenant_holdings_404(self, mock_db):
+        """Tenant A listing holdings for B's portfolio → 404."""
+        from app.modules.auth.service import get_auth_context as _get_auth_context
+
+        async def auth_as_a():
+            return AuthContext(user_id=USER_A, tenant_id=TENANT_A, role="analyst")
+
+        app.dependency_overrides[get_db] = lambda: mock_db
+        app.dependency_overrides[_get_auth_context] = auth_as_a
+
+        portfolio_b_id = uuid.uuid4()
+
+        # Portfolio check returns None (not owned by tenant A)
+        mock_db.execute = AsyncMock(return_value=MagicMock(
+            scalar_one_or_none=MagicMock(return_value=None),
+        ))
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.get(f"/api/portfolios/{portfolio_b_id}/holdings")
+
+        assert resp.status_code == 404
+        app.dependency_overrides.clear()
+
+
+class TestRoleEnforcement:
+    """Admin-only routes reject analysts with 403."""
+
+    @pytest.mark.asyncio
+    async def test_analyst_cannot_delete_portfolio(self, mock_db):
+        """Analyst attempting to delete → 403."""
+        from app.modules.auth.service import get_auth_context as _get_auth_context
+
+        async def auth_as_analyst():
+            return AuthContext(user_id=USER_A, tenant_id=TENANT_A, role="analyst")
+
+        app.dependency_overrides[get_db] = lambda: mock_db
+        app.dependency_overrides[_get_auth_context] = auth_as_analyst
+
+        portfolio_id = uuid.uuid4()
+        mock_db.execute = AsyncMock(return_value=MagicMock(
+            scalar_one_or_none=MagicMock(return_value=Portfolio(
+                id=portfolio_id, name="Test", tenant_id=TENANT_A,
+            )),
+        ))
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.delete(f"/api/portfolios/{portfolio_id}")
+
+        assert resp.status_code == 403
+        app.dependency_overrides.clear()
+
+    @pytest.mark.asyncio
+    async def test_admin_can_delete_portfolio(self, mock_db):
+        """Admin deleting portfolio → 204."""
+        from app.modules.auth.service import get_auth_context as _get_auth_context
+
+        async def auth_as_admin():
+            return AuthContext(user_id=USER_A, tenant_id=TENANT_A, role="admin")
+
+        app.dependency_overrides[get_db] = lambda: mock_db
+        app.dependency_overrides[_get_auth_context] = auth_as_admin
+
+        portfolio_id = uuid.uuid4()
+        mock_db.execute = AsyncMock(return_value=MagicMock(
+            scalar_one_or_none=MagicMock(return_value=Portfolio(
+                id=portfolio_id, name="Test", tenant_id=TENANT_A,
+            )),
+        ))
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.delete(f"/api/portfolios/{portfolio_id}")
+
+        assert resp.status_code == 204
+        app.dependency_overrides.clear()

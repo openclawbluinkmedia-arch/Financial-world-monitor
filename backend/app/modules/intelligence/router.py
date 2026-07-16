@@ -9,6 +9,7 @@ from sqlalchemy import desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
+from app.modules.auth.service import AuthContext, AuthContextRequired
 from app.modules.evidence.models import Evidence
 from app.modules.intelligence import (
     CausalGraphEdge,
@@ -39,6 +40,7 @@ async def list_intelligence_events(
     date_to: datetime | None = None,
     search: str | None = None,
     db: AsyncSession = Depends(get_db),
+    auth: AuthContext = Depends(AuthContextRequired()),
 ):
     query = select(IntelligenceEvent)
 
@@ -114,6 +116,7 @@ def serialize_intelligence_event(e: IntelligenceEvent) -> dict[str, Any]:
 async def get_intelligence_event(
     event_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    auth: AuthContext = Depends(AuthContextRequired()),
 ):
     result = await db.execute(
         select(IntelligenceEvent).where(IntelligenceEvent.id == event_id)
@@ -188,6 +191,7 @@ async def get_intelligence_event(
 async def get_affected_entities(
     event_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    auth: AuthContext = Depends(AuthContextRequired()),
 ):
     """Get affected sectors, companies, beneficiaries, negative exposures"""
     result = await db.execute(
@@ -214,6 +218,7 @@ async def get_affected_entities(
 async def get_causal_chain(
     event_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    auth: AuthContext = Depends(AuthContextRequired()),
 ):
     """Get causal chain with evidence citations"""
     result = await db.execute(
@@ -253,7 +258,10 @@ async def get_causal_chain(
 
 
 @router.get("/stats")
-async def intelligence_stats(db: AsyncSession = Depends(get_db)):
+async def intelligence_stats(
+    db: AsyncSession = Depends(get_db),
+    auth: AuthContext = Depends(AuthContextRequired()),
+):
     total = await db.execute(select(func.count(IntelligenceEvent.id)))
     by_type = await db.execute(
         select(IntelligenceEvent.event_type, func.count(IntelligenceEvent.id))
@@ -288,6 +296,7 @@ async def intelligence_stats(db: AsyncSession = Depends(get_db)):
 async def process_evidence(
     evidence_ids: list[uuid.UUID],
     db: AsyncSession = Depends(get_db),
+    auth: AuthContext = Depends(AuthContextRequired(required_roles=["admin"])),
 ):
     """Process a batch of evidence through the intelligence pipeline"""
     if not evidence_ids:
@@ -319,6 +328,7 @@ async def list_kg_nodes(
     limit: int = Query(100, le=500),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
+    auth: AuthContext = Depends(AuthContextRequired()),
 ):
     query = select(KnowledgeGraphNode)
     if node_type:
@@ -353,6 +363,7 @@ async def list_kg_edges(
     limit: int = Query(100, le=500),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
+    auth: AuthContext = Depends(AuthContextRequired()),
 ):
     query = select(CausalGraphEdge)
     if edge_type:

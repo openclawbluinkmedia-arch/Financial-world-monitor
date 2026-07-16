@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.modules.audit.models import AuditLog
+from app.modules.auth.service import AuthContext, AuthContextRequired
 from app.modules.portfolios.models import (
     AlertPreference,
     Holding,
@@ -220,8 +221,8 @@ async def upload_portfolio_csv(
     file: UploadFile = File(...),
     portfolio_name: str = Query(...),
     portfolio_description: str | None = Query(None),
-    tenant_id: uuid.UUID = Query(...),  # In production, get from auth
     db: AsyncSession = Depends(get_db),
+    auth: AuthContext = Depends(AuthContextRequired()),
 ):
     """Upload portfolio from CSV file"""
     if not file.filename.endswith(".csv") or file.content_type not in (
@@ -290,7 +291,7 @@ async def upload_portfolio_csv(
     portfolio = Portfolio(
         name=portfolio_name,
         description=portfolio_description,
-        tenant_id=tenant_id,
+        tenant_id=auth.tenant_id,
     )
     db.add(portfolio)
     await db.flush()
@@ -299,7 +300,7 @@ async def upload_portfolio_csv(
     for hd in holdings_data:
         holding = Holding(
             portfolio_id=portfolio.id,
-            tenant_id=tenant_id,
+            tenant_id=auth.tenant_id,
             **hd,
         )
         db.add(holding)
@@ -307,7 +308,7 @@ async def upload_portfolio_csv(
     # Create default alert preferences
     alert_pref = AlertPreference(
         portfolio_id=portfolio.id,
-        tenant_id=tenant_id,
+        tenant_id=auth.tenant_id,
     )
     db.add(alert_pref)
 
@@ -337,19 +338,19 @@ async def upload_portfolio_csv(
 @router.post("", response_model=dict, status_code=status.HTTP_201_CREATED)
 async def create_portfolio(
     data: PortfolioCreate,
-    tenant_id: uuid.UUID = Query(...),  # In production, get from auth
     db: AsyncSession = Depends(get_db),
+    auth: AuthContext = Depends(AuthContextRequired()),
 ):
     portfolio = Portfolio(
         name=data.name,
         description=data.description,
-        tenant_id=tenant_id,
+        tenant_id=auth.tenant_id,
     )
     db.add(portfolio)
     await db.flush()
 
     # Default alert preferences
-    alert_pref = AlertPreference(portfolio_id=portfolio.id, tenant_id=tenant_id)
+    alert_pref = AlertPreference(portfolio_id=portfolio.id, tenant_id=auth.tenant_id)
     db.add(alert_pref)
 
     await db.commit()
@@ -369,13 +370,13 @@ async def create_portfolio(
 
 @router.get("", response_model=list[dict])
 async def list_portfolios(
-    tenant_id: uuid.UUID = Query(...),
     include_deleted: bool = False,
     limit: int = Query(50, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
+    auth: AuthContext = Depends(AuthContextRequired()),
 ):
-    query = select(Portfolio).where(Portfolio.tenant_id == tenant_id)
+    query = select(Portfolio).where(Portfolio.tenant_id == auth.tenant_id)
     if not include_deleted:
         query = query.where(Portfolio.deleted_at.is_(None))
 
@@ -406,12 +407,12 @@ async def list_portfolios(
 @router.get("/{portfolio_id}", response_model=dict)
 async def get_portfolio(
     portfolio_id: uuid.UUID,
-    tenant_id: uuid.UUID = Query(...),
     db: AsyncSession = Depends(get_db),
+    auth: AuthContext = Depends(AuthContextRequired()),
 ):
     result = await db.execute(
         select(Portfolio).where(
-            and_(Portfolio.id == portfolio_id, Portfolio.tenant_id == tenant_id)
+            and_(Portfolio.id == portfolio_id, Portfolio.tenant_id == auth.tenant_id)
         )
     )
     portfolio = result.scalar_one_or_none()
@@ -432,12 +433,12 @@ async def get_portfolio(
 async def update_portfolio(
     portfolio_id: uuid.UUID,
     data: PortfolioUpdate,
-    tenant_id: uuid.UUID = Query(...),
     db: AsyncSession = Depends(get_db),
+    auth: AuthContext = Depends(AuthContextRequired()),  # admin only — see role check below
 ):
     result = await db.execute(
         select(Portfolio).where(
-            and_(Portfolio.id == portfolio_id, Portfolio.tenant_id == tenant_id)
+            and_(Portfolio.id == portfolio_id, Portfolio.tenant_id == auth.tenant_id)
         )
     )
     portfolio = result.scalar_one_or_none()
@@ -467,13 +468,13 @@ async def update_portfolio(
 @router.delete("/{portfolio_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_portfolio(
     portfolio_id: uuid.UUID,
-    tenant_id: uuid.UUID = Query(...),
-    secure: bool = Query(False),  # Secure deletion - overwrite data before deleting
+    secure: bool = Query(False),
     db: AsyncSession = Depends(get_db),
+    auth: AuthContext = Depends(AuthContextRequired(required_roles=["admin"])),
 ):
     result = await db.execute(
         select(Portfolio).where(
-            and_(Portfolio.id == portfolio_id, Portfolio.tenant_id == tenant_id)
+            and_(Portfolio.id == portfolio_id, Portfolio.tenant_id == auth.tenant_id)
         )
     )
     portfolio = result.scalar_one_or_none()
@@ -535,16 +536,16 @@ async def delete_portfolio(
 @router.get("/{portfolio_id}/holdings", response_model=list[dict])
 async def list_holdings(
     portfolio_id: uuid.UUID,
-    tenant_id: uuid.UUID = Query(...),
     sector: str | None = None,
     limit: int = Query(100, le=500),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
+    auth: AuthContext = Depends(AuthContextRequired()),
 ):
     # Verify portfolio access
     portfolio_result = await db.execute(
         select(Portfolio).where(
-            and_(Portfolio.id == portfolio_id, Portfolio.tenant_id == tenant_id)
+            and_(Portfolio.id == portfolio_id, Portfolio.tenant_id == auth.tenant_id)
         )
     )
     if not portfolio_result.scalar_one_or_none():
@@ -565,13 +566,13 @@ async def list_holdings(
 async def add_holding(
     portfolio_id: uuid.UUID,
     data: HoldingCreate,
-    tenant_id: uuid.UUID = Query(...),
     db: AsyncSession = Depends(get_db),
+    auth: AuthContext = Depends(AuthContextRequired()),
 ):
     # Verify portfolio
     portfolio_result = await db.execute(
         select(Portfolio).where(
-            and_(Portfolio.id == portfolio_id, Portfolio.tenant_id == tenant_id)
+            and_(Portfolio.id == portfolio_id, Portfolio.tenant_id == auth.tenant_id)
         )
     )
     portfolio = portfolio_result.scalar_one_or_none()
@@ -593,7 +594,7 @@ async def add_holding(
 
     holding = Holding(
         portfolio_id=portfolio_id,
-        tenant_id=tenant_id,
+        tenant_id=auth.tenant_id,
         ticker=data.ticker.upper(),
         exchange=data.exchange.upper(),
         isin=data.isin,
@@ -618,15 +619,15 @@ async def update_holding(
     portfolio_id: uuid.UUID,
     holding_id: uuid.UUID,
     data: HoldingUpdate,
-    tenant_id: uuid.UUID = Query(...),
     db: AsyncSession = Depends(get_db),
+    auth: AuthContext = Depends(AuthContextRequired()),
 ):
     result = await db.execute(
         select(Holding).where(
             and_(
                 Holding.id == holding_id,
                 Holding.portfolio_id == portfolio_id,
-                Holding.tenant_id == tenant_id,
+                Holding.tenant_id == auth.tenant_id,
             )
         )
     )
@@ -653,16 +654,16 @@ async def update_holding(
 async def delete_holding(
     portfolio_id: uuid.UUID,
     holding_id: uuid.UUID,
-    tenant_id: uuid.UUID = Query(...),
     secure: bool = Query(False),
     db: AsyncSession = Depends(get_db),
+    auth: AuthContext = Depends(AuthContextRequired(required_roles=["admin"])),
 ):
     result = await db.execute(
         select(Holding).where(
             and_(
                 Holding.id == holding_id,
                 Holding.portfolio_id == portfolio_id,
-                Holding.tenant_id == tenant_id,
+                Holding.tenant_id == auth.tenant_id,
             )
         )
     )

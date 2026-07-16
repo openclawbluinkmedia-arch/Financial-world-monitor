@@ -27,6 +27,10 @@ from app.modules.portfolios.models import (  # noqa: F401
     Portfolio,
     PortfolioAlert,
 )
+from app.modules.copilot.models import (  # noqa: F401
+    CopilotConversation,
+    CopilotMessage,
+)
 
 config = context.config
 settings = get_settings()

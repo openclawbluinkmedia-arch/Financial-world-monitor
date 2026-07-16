@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
+from app.modules.auth.service import AuthContext, AuthContextRequired
 from app.modules.ingestion.models import IngestionRun
 from app.modules.ingestion.service import IngestionService
 
@@ -28,14 +29,21 @@ async def list_connectors():
 
 
 @router.get("/connectors/{name}/health")
-async def connector_health(name: str, db: AsyncSession = Depends(get_db)):
+async def connector_health(
+    name: str,
+    db: AsyncSession = Depends(get_db),
+    auth: AuthContext = Depends(AuthContextRequired()),
+):
     service = IngestionService(db)
     health = await service.get_connector_health(name)
     return health
 
 
 @router.get("/connectors/health")
-async def all_connectors_health(db: AsyncSession = Depends(get_db)):
+async def all_connectors_health(
+    db: AsyncSession = Depends(get_db),
+    auth: AuthContext = Depends(AuthContextRequired()),
+):
     service = IngestionService(db)
     return await service.get_all_health()
 
@@ -45,6 +53,7 @@ async def run_ingestion(
     connector_name: str,
     source_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
+    auth: AuthContext = Depends(AuthContextRequired(required_roles=["admin"])),
 ):
     service = IngestionService(db)
 
@@ -77,6 +86,7 @@ async def list_runs(
     limit: int = Query(50, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
+    auth: AuthContext = Depends(AuthContextRequired()),
 ):
     result = await db.execute(
         select(IngestionRun)
@@ -101,7 +111,11 @@ async def list_runs(
 
 
 @router.get("/runs/{run_id}")
-async def get_run(run_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def get_run(
+    run_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    auth: AuthContext = Depends(AuthContextRequired()),
+):
     result = await db.execute(select(IngestionRun).where(IngestionRun.id == run_id))
     run = result.scalar_one_or_none()
     if not run:

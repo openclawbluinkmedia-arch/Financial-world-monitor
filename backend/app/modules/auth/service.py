@@ -56,12 +56,6 @@ async def get_auth_context(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     db: AsyncSession = Depends(get_db),
 ) -> AuthContext | None:
-    if not settings.has_secure_secret and settings.is_dev:
-        return AuthContext(
-            user_id=uuid.UUID("00000000-0000-0000-0000-000000000001"),
-            tenant_id=uuid.UUID("00000000-0000-0000-0000-000000000001"),
-            role="admin",
-        )
     if not credentials:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Missing authorization header")
     try:

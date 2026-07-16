@@ -122,7 +122,7 @@ async def test_rbi_connector_init():
     config = RBIConfig()
     connector = RBIConnector(config)
     assert connector.connector_name == "rbi"
-    assert "press_releases" in connector.rss_feeds
+    assert "rbi.org.in" in connector.config.base_url
 
 
 @pytest.mark.asyncio
@@ -130,7 +130,7 @@ async def test_sebi_connector_init():
     config = SEBIConfig()
     connector = SEBIConnector(config)
     assert connector.connector_name == "sebi"
-    assert "circulars" in connector.rss_feeds
+    assert connector.config.sitemap_url == "https://www.sebi.gov.in/sitemap.xml"
 
 
 @pytest.mark.asyncio

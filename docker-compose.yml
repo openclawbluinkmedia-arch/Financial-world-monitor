@@ -16,6 +16,11 @@ services:
       file: infra/docker-compose.yml
       service: backend
 
+  worldmonitor:
+    extends:
+      file: infra/docker-compose.yml
+      service: worldmonitor
+
   frontend:
     extends:
       file: infra/docker-compose.yml
