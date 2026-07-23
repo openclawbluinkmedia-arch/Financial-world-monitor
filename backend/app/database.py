@@ -13,8 +13,12 @@ _connect_args = {}
 if settings.DATABASE_SSL:
     _connect_args["ssl"] = settings.DATABASE_SSL
 
+_db_url = settings.DATABASE_URL
+if _db_url.startswith("postgresql://"):
+    _db_url = "postgresql+asyncpg://" + _db_url[len("postgresql://"):]
+
 engine = create_async_engine(
-    settings.DATABASE_URL,
+    _db_url,
     echo=False,
     connect_args=_connect_args if _connect_args else {},
 )

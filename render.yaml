@@ -10,10 +10,7 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: bash start.sh
     healthCheckPath: /api/health
-    healthCheckTimeout: 60
     envVars:
-      - key: PYTHON_VERSION
-        value: "3.11"
       - key: DEPLOYMENT_MODE
         value: dev
       - key: NVIDIA_API_KEY
