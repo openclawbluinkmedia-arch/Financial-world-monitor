@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,6 +14,7 @@ from app.modules.intelligence import router as intelligence_router
 from app.modules.auth.router import router as auth_router
 from app.modules.portfolios import router as portfolios_router
 from app.modules.copilot import router as copilot_router
+from app.scheduler import start_scheduler, stop_scheduler
 
 settings = get_settings()
 
@@ -22,10 +24,20 @@ logging.basicConfig(
 )
 logger = logging.getLogger("fios")
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("Starting APScheduler ingestion jobs...")
+    start_scheduler()
+    yield
+    stop_scheduler()
+
+
 app = FastAPI(
     title="FIOS — Financial Intelligence Operating System",
     version="0.1.0",
     description="Privacy-first, self-hostable B2B financial-intelligence platform.",
+    lifespan=lifespan,
 )
 
 allowed_origins = [o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()]

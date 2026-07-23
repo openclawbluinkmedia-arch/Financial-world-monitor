@@ -6,6 +6,7 @@ import StatCard from "../components/StatCard";
 import FilterBar from "../components/FilterBar";
 import DataTable from "../components/DataTable";
 import ImpactBadge from "../components/ImpactBadge";
+import LiveIndicator from "../components/LiveIndicator";
 
 interface EvidenceItem {
   id: string;
@@ -48,6 +49,7 @@ function relativeTime(ts: string | null): string {
 }
 
 export default function EvidencePage() {
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [evidence, setEvidence] = useState<EvidenceItem[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -99,6 +101,16 @@ export default function EvidencePage() {
   useEffect(() => {
     fetchEvidence();
     fetchSources();
+  }, [fetchEvidence, fetchSources]);
+
+  // Live polling every 45s
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchEvidence();
+      fetchSources();
+      setLastUpdated(new Date());
+    }, 45000);
+    return () => clearInterval(interval);
   }, [fetchEvidence, fetchSources]);
 
   const handleFilter = (key: string, value: string) => {
@@ -284,10 +296,11 @@ export default function EvidencePage() {
         subtitle={`${total} items from ${sources.length} sources`}
         actions={
           <>
+            <LiveIndicator />
             <button onClick={handleExport} className="btn-secondary">
               Export CSV
             </button>
-            <button onClick={() => fetchEvidence()} className="btn-primary">
+            <button onClick={() => { fetchEvidence(); setLastUpdated(new Date()); }} className="btn-primary">
               Refresh
             </button>
           </>

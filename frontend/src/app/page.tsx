@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import StatCard from "./components/StatCard";
 import ImpactBadge from "./components/ImpactBadge";
 import ConfidenceBar from "./components/ConfidenceBar";
+import LiveIndicator from "./components/LiveIndicator";
 
 interface HealthData {
   status: string;
@@ -52,20 +53,32 @@ export default function HomePage() {
   const [sources, setSources] = useState<SourceStat[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    Promise.all([
-      fetch("/api/health").then((r) => r.json()),
-      fetch("/api/intelligence/events?page_size=10").then((r) => r.json()),
-      fetch("/api/evidence/stats/sources").then((r) => r.json()),
-    ])
-      .then(([h, e, s]) => {
-        setHealth(h);
-        setEvents(e.items || []);
-        setSources(s || []);
-      })
-      .catch(console.error)
-      .finally(() => setLoading(false));
+  const fetchAll = useCallback(async () => {
+    try {
+      const [h, e, s] = await Promise.all([
+        fetch("/api/health").then((r) => r.json()),
+        fetch("/api/intelligence/events?page_size=10").then((r) => r.json()),
+        fetch("/api/evidence/stats/sources").then((r) => r.json()),
+      ]);
+      setHealth(h);
+      setEvents(e.items || []);
+      setSources(s || []);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    fetchAll();
+  }, [fetchAll]);
+
+  // Live polling every 45s
+  useEffect(() => {
+    const interval = setInterval(fetchAll, 45000);
+    return () => clearInterval(interval);
+  }, [fetchAll]);
 
   const totalItems = sources.reduce((sum, s) => sum + s.total_items, 0);
   const mockItems = sources.reduce((sum, s) => sum + s.mock_items, 0);
@@ -76,11 +89,14 @@ export default function HomePage() {
   return (
     <div className="page-container">
       {/* Header */}
-      <div className="mb-6">
-        <h1 className="text-xl font-bold text-fg">Dashboard</h1>
-        <p className="text-sm text-fg-dim mt-0.5">
-          System overview and recent intelligence
-        </p>
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-xl font-bold text-fg">Dashboard</h1>
+          <p className="text-sm text-fg-dim mt-0.5">
+            System overview and recent intelligence
+          </p>
+        </div>
+        <LiveIndicator />
       </div>
 
       {/* Stat cards */}
@@ -115,6 +131,20 @@ export default function HomePage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Map anchor */}
+        <div className="card p-4">
+          <h2 className="section-title mb-3">Geographic Coverage</h2>
+          <div className="flex items-center justify-center h-48 bg-surface-card rounded-lg border border-surface-border">
+            <div className="text-center text-fg-dim">
+              <svg className="w-16 h-16 mx-auto mb-2 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <p className="text-xs">India • Global</p>
+              <p className="text-2xs text-fg-dim mt-1">Map view coming soon</p>
+            </div>
+          </div>
+        </div>
+
         {/* Recent Events Feed */}
         <div>
           <h2 className="section-title">Recent Intelligence Events</h2>
@@ -152,54 +182,54 @@ export default function HomePage() {
             )}
           </div>
         </div>
+      </div>
 
-        {/* Data Sources Status */}
-        <div>
-          <h2 className="section-title">Data Source Health</h2>
-          <div className="space-y-2">
-            {loading ? (
-              <>
-                {[1, 2, 3, 4].map((i) => (
-                  <div key={i} className="card p-4 animate-pulse">
-                    <div className="h-4 bg-surface-hover rounded w-1/2" />
+      {/* Data Sources Status */}
+      <div className="mt-6">
+        <h2 className="section-title">Data Source Health</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-3">
+          {loading ? (
+            <>
+              {[1, 2, 3, 4, 5, 6].map((i) => (
+                <div key={i} className="card p-4 animate-pulse">
+                  <div className="h-4 bg-surface-hover rounded w-1/2" />
+                </div>
+              ))}
+            </>
+          ) : sources.length === 0 ? (
+            <div className="card p-6 text-center text-fg-dim text-sm col-span-full">
+              No source data available.
+            </div>
+          ) : (
+            sources.map((s) => {
+              const healthColor =
+                s.health_status === "healthy"
+                  ? "badge-green"
+                  : s.health_status === "degraded"
+                    ? "badge-amber"
+                    : "badge-red";
+              return (
+                <div key={s.source_name} className="card p-3">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-sm font-medium text-fg">
+                      {s.source_name}
+                    </span>
+                    <span className={`text-2xs ${healthColor}`}>
+                      {s.health_status}
+                    </span>
                   </div>
-                ))}
-              </>
-            ) : sources.length === 0 ? (
-              <div className="card p-6 text-center text-fg-dim text-sm">
-                No source data available.
-              </div>
-            ) : (
-              sources.map((s) => {
-                const healthColor =
-                  s.health_status === "healthy"
-                    ? "badge-green"
-                    : s.health_status === "degraded"
-                      ? "badge-amber"
-                      : "badge-red";
-                return (
-                  <div key={s.source_name} className="card p-3">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-sm font-medium text-fg">
-                        {s.source_name}
+                  <div className="flex items-center gap-3 text-2xs text-fg-dim">
+                    <span>{s.total_items} items</span>
+                    {s.mock_items > 0 && (
+                      <span className="text-accent-amber">
+                        {s.mock_items} mock
                       </span>
-                      <span className={`text-2xs ${healthColor}`}>
-                        {s.health_status}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-3 text-2xs text-fg-dim">
-                      <span>{s.total_items} items</span>
-                      {s.mock_items > 0 && (
-                        <span className="text-accent-amber">
-                          {s.mock_items} mock
-                        </span>
-                      )}
-                    </div>
+                    )}
                   </div>
-                );
-              })
-            )}
-          </div>
+                </div>
+              );
+            })
+          )}
         </div>
       </div>
 
@@ -207,7 +237,7 @@ export default function HomePage() {
       {health && (
         <div className="mt-6">
           <h2 className="section-title">System Services</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-3">
             {Object.entries(health.services || {}).map(([name, svc]) => (
               <div key={name} className="card p-3">
                 <div className="flex items-center justify-between mb-1">

@@ -30,6 +30,9 @@ Thumbs.db
 # Docker
 *.log
 
+# Build artifacts
+frontend/tsconfig.tsbuildinfo
+
 # Alembic
 backend/alembic/versions/*.pyc
 

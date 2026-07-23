@@ -10,6 +10,7 @@ import ImpactBadge from "../components/ImpactBadge";
 import ConfidenceBar from "../components/ConfidenceBar";
 import CausalChain from "../components/CausalChain";
 import EvidenceCitation from "../components/EvidenceCitation";
+import LiveIndicator from "../components/LiveIndicator";
 
 interface IntelligenceEvent {
   id: string;
@@ -56,6 +57,7 @@ export default function IntelligencePage() {
   const [events, setEvents] = useState<IntelligenceEvent[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const [filters, setFilters] = useState({
@@ -104,6 +106,16 @@ export default function IntelligencePage() {
   useEffect(() => {
     fetchEvents();
     fetchStats();
+  }, [fetchEvents, fetchStats]);
+
+  // Live polling every 45s
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchEvents();
+      fetchStats();
+      setLastUpdated(new Date());
+    }, 45000);
+    return () => clearInterval(interval);
   }, [fetchEvents, fetchStats]);
 
   const handleFilter = (key: string, value: string) => {
@@ -292,10 +304,11 @@ export default function IntelligencePage() {
         subtitle={`${total} events — Real-time impact intelligence`}
         actions={
           <>
+            <LiveIndicator />
             <button onClick={handleExport} className="btn-secondary">
               Export CSV
             </button>
-            <button onClick={() => fetchEvents()} className="btn-primary">
+            <button onClick={() => { fetchEvents(); setLastUpdated(new Date()); }} className="btn-primary">
               Refresh
             </button>
           </>
