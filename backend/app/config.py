@@ -66,6 +66,7 @@ class Settings(BaseSettings):
     def normalize_db_url(cls, v: str) -> str:
         if not v:
             return v
+        v = v.strip()
         parsed = urlparse(v)
         scheme = parsed.scheme
         if scheme in ("postgres", "postgresql"):
@@ -82,6 +83,14 @@ class Settings(BaseSettings):
             host = urlparse(self.DATABASE_URL).hostname or ""
             if host not in ("localhost", "127.0.0.1", "::1", ""):
                 self.DATABASE_SSL = "require"
+        return self
+
+    @model_validator(mode="after")
+    def warn_on_malformed_host(self) -> "Settings":
+        import logging
+        host = urlparse(self.DATABASE_URL).hostname or ""
+        if host and not all(c.isascii() and (c.isalnum() or c in ".-_:") for c in host):
+            logging.warning("DATABASE_URL hostname %r contains non-ASCII or unusual chars", host)
         return self
 
     @property

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -30,6 +31,21 @@ logger = logging.getLogger("fios")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    logger.info("Running database migrations...")
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "alembic", "upgrade", "head",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate()
+        if proc.returncode == 0:
+            logger.info("Migrations completed successfully")
+        else:
+            logger.warning("Migrations failed (exit %d): %s", proc.returncode, stderr.decode().strip())
+    except Exception as e:
+        logger.warning("Could not run migrations: %s", e)
+
     if settings.ENABLE_SCHEDULER:
         logger.info("Starting APScheduler ingestion jobs...")
         start_scheduler()
