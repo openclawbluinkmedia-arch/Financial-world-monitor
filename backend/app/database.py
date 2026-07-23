@@ -9,7 +9,15 @@ from app.config import get_settings
 
 settings = get_settings()
 
-engine = create_async_engine(settings.DATABASE_URL, echo=False)
+_connect_args = {}
+if settings.DATABASE_SSL:
+    _connect_args["ssl"] = settings.DATABASE_SSL
+
+engine = create_async_engine(
+    settings.DATABASE_URL,
+    echo=False,
+    connect_args=_connect_args if _connect_args else {},
+)
 async_session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 

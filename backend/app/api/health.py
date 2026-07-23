@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 
-import redis.asyncio as aioredis
 from fastapi import APIRouter
 
 from app.config import get_settings
@@ -16,7 +15,6 @@ router = APIRouter()
 async def _check_postgres() -> dict:
     try:
         from app.database import check_db_health
-
         ok = await check_db_health()
         return {"status": "ok" if ok else "error", "detail": None}
     except Exception as e:
@@ -25,7 +23,10 @@ async def _check_postgres() -> dict:
 
 
 async def _check_redis() -> dict:
+    if not settings.REDIS_URL:
+        return {"status": "disabled", "detail": "Redis not configured"}
     try:
+        import redis.asyncio as aioredis
         r = aioredis.from_url(settings.REDIS_URL, socket_connect_timeout=3)
         await r.ping()
         await r.aclose()
@@ -39,12 +40,12 @@ async def _check_redis() -> dict:
 async def health_check():
     db = await _check_postgres()
     cache = await _check_redis()
-    overall = "ok" if db["status"] == "ok" and cache["status"] == "ok" else "degraded"
+    services = {"postgres": db}
+    if settings.REDIS_URL:
+        services["redis"] = cache
+    overall = "ok" if db["status"] == "ok" else "degraded"
     return {
         "status": overall,
         "mode": settings.DEPLOYMENT_MODE.value,
-        "services": {
-            "postgres": db,
-            "redis": cache,
-        },
+        "services": services,
     }

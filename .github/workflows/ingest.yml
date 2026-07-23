@@ -1,0 +1,16 @@
+name: Scheduled Ingestion
+
+on:
+  schedule:
+    - cron: "*/20 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger ingestion on Render
+        run: |
+          curl -s -X POST "${{ secrets.RENDER_API_URL }}/api/ingest/run-all?token=${{ secrets.INGEST_TOKEN }}" \
+            --max-time 300 \
+            --fail-with-body

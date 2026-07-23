@@ -44,6 +44,9 @@ services:
     environment:
       POSTGRES_HOST: postgres
       REDIS_HOST: redis
+      DATABASE_URL: postgresql+asyncpg://fios:fios_secret@postgres:5432/fios
+      DATABASE_SSL: ""
+      ENABLE_SCHEDULER: "true"
     ports:
       - "0.0.0.0:8000:8000"
     depends_on:

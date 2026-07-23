@@ -1,44 +1,37 @@
 """
-Local embeddings via sentence-transformers (BAAI/bge-m3).
-Always runs on CPU — never sends evidence text to a third-party cloud.
-
-NOTE: The model is lazy-loaded on first call to avoid importing
-sentence-transformers at module load time. The first call will
-download the model if not cached.
+Remote embeddings via NVIDIA NIM /embeddings endpoint (OpenAI-compatible).
+Never loads a local model — calls the API on every request.
 """
 
 from __future__ import annotations
 
 import logging
-from functools import lru_cache
+
+import httpx
 
 from app.config import get_settings
 
 logger = logging.getLogger("fios.ai.embeddings")
-
 settings = get_settings()
 
 
-@lru_cache()
-def _get_embedding_model():
-    from sentence_transformers import SentenceTransformer
-
-    logger.info(
-        "Loading embedding model %s (CPU, this may take a moment on first call)",
-        settings.EMBEDDING_MODEL,
-    )
-    model = SentenceTransformer(
-        settings.EMBEDDING_MODEL,
-        device="cpu",
-    )
-    logger.info("Embedding model loaded successfully")
-    return model
-
-
 async def embed_texts(texts: list[str]) -> list[list[float]]:
-    model = _get_embedding_model()
-    embeddings = model.encode(texts, normalize_embeddings=True, show_progress_bar=False)
-    return embeddings.tolist()
+    url = f"{settings.effective_embedding_api_url}/embeddings"
+    api_key = settings.effective_embedding_api_key
+    payload = {
+        "model": settings.EMBEDDING_MODEL,
+        "input": texts,
+    }
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        resp = await client.post(url, headers=headers, json=payload)
+        resp.raise_for_status()
+        data = resp.json()
+        vectors = [item["embedding"] for item in data["data"]]
+    return vectors
 
 
 async def embed_query(text: str) -> list[float]:

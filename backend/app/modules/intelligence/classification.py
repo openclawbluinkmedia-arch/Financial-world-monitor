@@ -11,7 +11,8 @@ logger = logging.getLogger("fios.intelligence.classification")
 
 class EventClassifier:
     """
-    Event classification using ProsusAI/finbert for sentiment + Qwen for category.
+    Event classification via Qwen reasoning model (through model router).
+    Sentiment and category are extracted via structured prompts.
     """
 
     EVENT_CATEGORIES = [
@@ -26,16 +27,8 @@ class EventClassifier:
         self.deployment_mode = get_settings().DEPLOYMENT_MODE.value
 
     async def classify_event(self, text: str, title: str = "") -> dict[str, Any]:
-        """
-        Classify an event: category + sentiment.
-        Returns dict with category, sentiment, confidence scores.
-        """
-        # Combine title and text for classification
         full_text = f"{title}\n\n{text}" if title else text
-
-        # Run category classification and sentiment in parallel
         category_result, sentiment_result = await self._classify_parallel(full_text)
-
         return {
             "category": category_result.get("label", "other"),
             "category_confidence": category_result.get("confidence", 0.0),
@@ -46,8 +39,6 @@ class EventClassifier:
         }
 
     async def _classify_parallel(self, text: str) -> tuple[dict[str, Any], dict[str, Any]]:
-        """Run category and sentiment classification"""
-        # Category classification via Qwen
         category_prompt = f"""Classify this financial news/event into ONE category:
 Categories: {", ".join(self.EVENT_CATEGORIES)}
 
@@ -111,17 +102,10 @@ class ImpactReasoner:
         sectors: list[str],
         security_master_service,
     ) -> dict[str, Any]:
-        """
-        Generate impact assessment with causal chain.
-        Evidence-grounded: every claim must cite evidence IDs.
-        """
-        # Build context from evidence
         evidence_context = "\n\n".join([
             f"[EVIDENCE {i+1}]: {text[:1500]}"
             for i, text in enumerate(evidence_texts)
         ])
-
-        # Build entity context
         entity_context = self._build_entity_context(entities)
 
         prompt = f"""You are a financial intelligence analyst. Analyze the impact of this event on Indian equities.
@@ -172,10 +156,8 @@ Return JSON with:
                 max_tokens=4096,
                 temperature=0.3,
             )
-            # Parse JSON from response
             import json
             content = result.content
-            # Extract JSON from markdown if present
             if "```json" in content:
                 content = content.split("```json")[1].split("```")[0]
             elif "```" in content:

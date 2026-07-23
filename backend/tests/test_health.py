@@ -21,4 +21,4 @@ async def test_health_endpoint(client: AsyncClient):
     assert "status" in data
     assert "services" in data
     assert "postgres" in data["services"]
-    assert "redis" in data["services"]
+    # Redis is optional — may or may not be present

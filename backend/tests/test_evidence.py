@@ -145,10 +145,7 @@ async def test_ingestion_service_process_item_exact_dup(mock_db, sample_item):
 @pytest.mark.asyncio
 async def test_document_processor_initialization():
     processor = DocumentProcessor()
-    assert hasattr(processor, '_docling_converter')
-    assert hasattr(processor, '_paddle_ocr')
-    assert not processor.docling_available
-    assert not processor.paddleocr_available
+    assert hasattr(processor, 'process_document')
 
 
 @pytest.mark.asyncio

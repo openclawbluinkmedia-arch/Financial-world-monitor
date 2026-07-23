@@ -28,35 +28,10 @@ logger = logging.getLogger("fios.ingestion.service")
 
 
 class DocumentProcessor:
-    def __init__(self):
-        self._docling_converter = None
-        self._paddle_ocr = None
-
-    @property
-    def docling_available(self) -> bool:
-        return self._docling_converter is not None
-
-    @property
-    def paddleocr_available(self) -> bool:
-        return self._paddle_ocr is not None
-
-    async def _ensure_docling(self):
-        if self._docling_converter is None:
-            try:
-                from docling.document_converter import DocumentConverter
-                self._docling_converter = DocumentConverter()
-                logger.info("Docling document processor initialized (lazy)")
-            except Exception as e:
-                logger.warning(f"Docling not available: {e}")
-
-    async def _ensure_paddleocr(self):
-        if self._paddle_ocr is None:
-            try:
-                from paddleocr import PaddleOCR
-                self._paddle_ocr = PaddleOCR(use_angle_cls=True, lang="en", use_gpu=False)
-                logger.info("PaddleOCR initialized (lazy)")
-            except Exception as e:
-                logger.warning(f"PaddleOCR not available: {e}")
+    """
+    Lightweight document processor using pypdf for text extraction.
+    No OCR capability — scanned PDFs are marked for OCR and skipped.
+    """
 
     async def process_document(self, content: bytes, filename: str) -> dict[str, Any]:
         if filename.lower().endswith(".pdf"):
@@ -70,70 +45,36 @@ class DocumentProcessor:
             tmp_path = tmp.name
 
         try:
-            await self._ensure_docling()
-            if self.docling_available:
-                result = self._docling_converter.convert(tmp_path)
-                text = result.document.export_to_text()
-                tables = result.document.export_to_dict().get("tables", [])
+            from pypdf import PdfReader
+            reader = PdfReader(tmp_path)
+            pages = []
+            for page in reader.pages:
+                text = page.extract_text()
+                if text:
+                    pages.append(text)
+            text = "\n\n".join(pages)
 
-                if self._is_scanned_or_empty(text):
-                    logger.info(f"Document {filename} appears scanned, using PaddleOCR")
-                    await self._ensure_paddleocr()
-                    if self.paddleocr_available:
-                        text = await self._ocr_pdf(tmp_path)
-
+            if not text.strip():
                 return {
-                    "text": text,
-                    "tables": tables,
-                    "method": "docling" + ("+paddleocr" if self.paddleocr_available else ""),
+                    "text": "",
+                    "tables": [],
+                    "method": "skipped_ocr_needed",
+                    "error": "No extractable text — OCR required",
                 }
-            else:
-                return {"text": "", "tables": [], "method": "none", "error": "No processor available"}
+
+            return {
+                "text": text,
+                "tables": [],
+                "method": "pypdf",
+            }
+        except Exception as e:
+            logger.error(f"PDF processing failed: {e}")
+            return {"text": "", "tables": [], "method": "error", "error": str(e)}
         finally:
             try:
                 os.unlink(tmp_path)
             except Exception:
                 pass
-
-    def _is_scanned_or_empty(self, text: str) -> bool:
-        text = text.strip()
-        if len(text) < 100:
-            return True
-        if len(text.split()) < 20:
-            return True
-        return False
-
-    async def _ocr_pdf(self, pdf_path: str) -> str:
-        if not self.paddleocr_available:
-            return ""
-
-        try:
-            import fitz
-            doc = fitz.open(pdf_path)
-            all_text = []
-
-            for page_num in range(len(doc)):
-                page = doc[page_num]
-                pix = page.get_pixmap(dpi=200)
-                img_bytes = pix.tobytes("png")
-
-                with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-                    tmp.write(img_bytes)
-                    img_path = tmp.name
-
-                try:
-                    result = self._paddle_ocr.ocr(img_path, cls=True)
-                    if result:
-                        page_text = "\n".join([line[1][0] for line in result if line])
-                        all_text.append(page_text)
-                finally:
-                    os.unlink(img_path)
-
-            doc.close()
-            return "\n\n".join(all_text)
-        except Exception as e:
-            logger.error(f"PaddleOCR failed: {e}")
-            return ""
 
     async def _process_text(self, content: bytes, filename: str) -> dict[str, Any]:
         try:
@@ -159,7 +100,6 @@ class DeduplicationService:
             return None
         from simhash import Simhash
         from sqlalchemy import select
-
         try:
             query_hash = int(near_dup_hash)
             result = await self.db.execute(
@@ -239,7 +179,6 @@ class IngestionService:
         return run
 
     async def _process_item(self, item, run_id: uuid.UUID):
-
         existing = await self.dedup_service.check_exact_duplicate(item.content_hash)
         if existing:
             await self.dedup_service.log_deduplication(
