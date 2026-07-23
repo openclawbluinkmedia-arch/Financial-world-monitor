@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from enum import Enum
 from functools import lru_cache
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -58,6 +60,29 @@ class Settings(BaseSettings):
     # ── Logging ────────────────────────────────────────────────
     LOG_LEVEL: str = "INFO"
     STRUCTURED_LOG: bool = True
+
+    @field_validator("DATABASE_URL", mode="before")
+    @classmethod
+    def normalize_db_url(cls, v: str) -> str:
+        if not v:
+            return v
+        parsed = urlparse(v)
+        scheme = parsed.scheme
+        if scheme in ("postgres", "postgresql"):
+            scheme = "postgresql+asyncpg"
+        rejected = {"sslmode", "channel_binding", "options"}
+        qs = parse_qs(parsed.query, keep_blank_values=True)
+        qs = {k: v for k, v in qs.items() if k.lower() not in rejected}
+        new_query = urlencode(qs, doseq=True) if qs else None
+        return urlunparse((scheme, parsed.netloc, parsed.path, parsed.params, new_query, parsed.fragment))
+
+    @model_validator(mode="after")
+    def auto_detect_ssl(self) -> "Settings":
+        if not self.DATABASE_SSL:
+            host = urlparse(self.DATABASE_URL).hostname or ""
+            if host not in ("localhost", "127.0.0.1", "::1", ""):
+                self.DATABASE_SSL = "require"
+        return self
 
     @property
     def is_dev(self) -> bool:

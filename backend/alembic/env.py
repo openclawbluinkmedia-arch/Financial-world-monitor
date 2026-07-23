@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from alembic import context
 from app.config import get_settings
-from app.database import Base
+from app.database import Base, build_engine_kwargs
 # Import all models so Alembic can detect them
 from app.modules.audit.models import AuditLog  # noqa: F401
 from app.modules.entities.models import CompanyAlias, SecurityMaster  # noqa: F401
@@ -55,7 +55,10 @@ def do_run_migrations(connection):
 
 
 async def run_async_migrations() -> None:
-    connectable = create_async_engine(settings.DATABASE_URL)
+    connectable = create_async_engine(
+        settings.DATABASE_URL,
+        **build_engine_kwargs(settings.DATABASE_URL, settings.DATABASE_SSL),
+    )
     async with connectable.connect() as connection:
         await connection.run_sync(do_run_migrations)
     await connectable.dispose()

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import AsyncGenerator
+from typing import Any, AsyncGenerator
+from urllib.parse import urlparse
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
@@ -9,18 +10,25 @@ from app.config import get_settings
 
 settings = get_settings()
 
-_connect_args = {}
-if settings.DATABASE_SSL:
-    _connect_args["ssl"] = settings.DATABASE_SSL
 
-_db_url = settings.DATABASE_URL
-if _db_url.startswith("postgresql://"):
-    _db_url = "postgresql+asyncpg://" + _db_url[len("postgresql://"):]
+def build_engine_kwargs(database_url: str, database_ssl: str = "") -> dict[str, Any]:
+    connect_args: dict[str, Any] = {
+        "statement_cache_size": 0,
+        "prepared_statement_cache_size": 0,
+    }
+    ssl_value = database_ssl
+    if not ssl_value:
+        host = urlparse(database_url).hostname or ""
+        if host not in ("localhost", "127.0.0.1", "::1", ""):
+            ssl_value = "require"
+    if ssl_value:
+        connect_args["ssl"] = ssl_value
+    return {"echo": False, "connect_args": connect_args}
+
 
 engine = create_async_engine(
-    _db_url,
-    echo=False,
-    connect_args=_connect_args if _connect_args else {},
+    settings.DATABASE_URL,
+    **build_engine_kwargs(settings.DATABASE_URL, settings.DATABASE_SSL),
 )
 async_session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
