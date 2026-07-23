@@ -31,6 +31,16 @@ services:
         value: "1024"
       - key: DATABASE_URL
         sync: false
+      - key: DB_HOST
+        sync: false
+      - key: DB_PORT
+        value: "5432"
+      - key: DB_USER
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: DB_NAME
+        value: postgres
       - key: DATABASE_SSL
         value: require
       - key: REDIS_URL

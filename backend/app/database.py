@@ -11,7 +11,7 @@ from app.config import get_settings
 settings = get_settings()
 
 
-def build_engine_kwargs(database_url: str, database_ssl: str = "") -> dict[str, Any]:
+def build_engine_kwargs(database_url: str, database_ssl: str = "") -> tuple[str, dict[str, Any]]:
     connect_args: dict[str, Any] = {
         "statement_cache_size": 0,
         "prepared_statement_cache_size": 0,
@@ -23,13 +23,11 @@ def build_engine_kwargs(database_url: str, database_ssl: str = "") -> dict[str, 
             ssl_value = "require"
     if ssl_value:
         connect_args["ssl"] = ssl_value
-    return {"echo": False, "connect_args": connect_args}
+    return database_url, {"echo": False, "connect_args": connect_args}
 
 
-engine = create_async_engine(
-    settings.DATABASE_URL,
-    **build_engine_kwargs(settings.DATABASE_URL, settings.DATABASE_SSL),
-)
+url, engine_kwargs = build_engine_kwargs(settings.sqlalchemy_url, settings.DATABASE_SSL)
+engine = create_async_engine(url, **engine_kwargs)
 async_session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 

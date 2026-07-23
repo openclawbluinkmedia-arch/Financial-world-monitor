@@ -37,7 +37,15 @@ class Settings(BaseSettings):
     EMBEDDING_DIM: int = 1024
 
     # ── Database ───────────────────────────────────────────────
-    DATABASE_URL: str = "postgresql+asyncpg://fios:fios_secret@localhost:5432/fios"
+    # Either set DATABASE_URL (single URL string), OR set the
+    # individual DB_HOST / DB_USER / DB_PASSWORD components.
+    # Components take precedence.
+    DATABASE_URL: str = ""
+    DB_HOST: str = ""
+    DB_PORT: int = 5432
+    DB_USER: str = ""
+    DB_PASSWORD: str = ""
+    DB_NAME: str = "postgres"
     DATABASE_SSL: str = ""
 
     # ── Redis (optional — leave empty to disable) ──────────────
@@ -66,7 +74,7 @@ class Settings(BaseSettings):
     def normalize_db_url(cls, v: str) -> str:
         if not v:
             return v
-        v = v.strip()
+        v = v.strip().strip("\"'")
         parsed = urlparse(v)
         scheme = parsed.scheme
         if scheme in ("postgres", "postgresql"):
@@ -80,18 +88,30 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def auto_detect_ssl(self) -> "Settings":
         if not self.DATABASE_SSL:
-            host = urlparse(self.DATABASE_URL).hostname or ""
+            host = urlparse(self.sqlalchemy_url).hostname or ""
             if host not in ("localhost", "127.0.0.1", "::1", ""):
                 self.DATABASE_SSL = "require"
         return self
 
-    @model_validator(mode="after")
-    def warn_on_malformed_host(self) -> "Settings":
-        import logging
-        host = urlparse(self.DATABASE_URL).hostname or ""
-        if host and not all(c.isascii() and (c.isalnum() or c in ".-_:") for c in host):
-            logging.warning("DATABASE_URL hostname %r contains non-ASCII or unusual chars", host)
-        return self
+    @property
+    def sqlalchemy_url(self) -> str:
+        from sqlalchemy.engine import URL
+
+        if self.DB_HOST:
+            host = self.DB_HOST.strip()
+            url_obj = URL.create(
+                drivername="postgresql+asyncpg",
+                username=self.DB_USER or None,
+                password=self.DB_PASSWORD or None,
+                host=host,
+                port=self.DB_PORT,
+                database=self.DB_NAME,
+            )
+            return str(url_obj)
+        raw = self.DATABASE_URL or ""
+        if not raw:
+            return "postgresql+asyncpg://fios:fios_secret@localhost:5432/fios"
+        return raw
 
     @property
     def is_dev(self) -> bool:
