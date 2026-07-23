@@ -8,9 +8,12 @@ services:
     branch: main
     rootDir: backend
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    startCommand: bash start.sh
     healthCheckPath: /api/health
+    healthCheckTimeout: 60
     envVars:
+      - key: PYTHON_VERSION
+        value: "3.11"
       - key: DEPLOYMENT_MODE
         value: dev
       - key: NVIDIA_API_KEY
@@ -33,8 +36,6 @@ services:
         sync: false
       - key: DATABASE_SSL
         value: require
-      - key: DATABASE_POOLER_HOST
-        sync: false
       - key: REDIS_URL
         sync: false
       - key: CORS_ORIGINS
