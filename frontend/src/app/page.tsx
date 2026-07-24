@@ -1,317 +1,346 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { fetchApi, getHealth, getEvents, getSourceStats, getConnectorHealth, type SourceStat, type ConnectorHealthItem, type IntelligenceEvent } from "@/lib/api";
-import StatCard from "./components/StatCard";
-import ImpactBadge from "./components/ImpactBadge";
-import LiveIndicator from "./components/LiveIndicator";
-import MapView, { type MapEvent } from "./components/MapView";
+import { fetchApi, getEvents, getHealth, getSourceStats, getConnectorHealth, type IntelligenceEvent, type SourceStat, type ConnectorHealthItem } from "@/lib/api";
+import { ComposableMap, Geographies, Geography, Marker } from "react-simple-maps";
 
-function relativeTime(ts: string): string {
-  try {
-    const diff = Date.now() - new Date(ts).getTime();
-    const m = Math.floor(diff / 60000);
-    const h = Math.floor(diff / 3600000);
-    const d = Math.floor(diff / 86400000);
-    if (m < 1) return "just now";
-    if (m < 60) return `${m}m ago`;
-    if (h < 24) return `${h}h ago`;
-    return `${d}d ago`;
-  } catch { return ts; }
-}
+const GEO_URL = "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json";
+const POLL_MS = 30000;
+const STALE_MS = 40000;
 
 const COUNTRY_CENTROIDS: Record<string, [number, number]> = {
   IN: [20.5937, 78.9629], US: [37.0902, -95.7129], EU: [50.8503, 4.3517],
   GLOBAL: [20, 0], UK: [55.3781, -3.4360], JP: [36.2048, 138.2529],
   CN: [35.8617, 104.1954], BR: [-14.2350, -51.9253], AU: [-25.2744, 133.7751],
-  RU: [61.5240, 105.3188], CA: [56.1304, -106.3468], DE: [51.1657, 10.4515],
-  FR: [46.6034, 1.8883], SG: [1.3521, 103.8198], AE: [23.4241, 53.8478],
-  SA: [23.8859, 45.0792], CH: [46.8182, 8.2275], HK: [22.3193, 114.1694],
-  KR: [35.9078, 127.7669], ZA: [-30.5595, 22.9375], NG: [9.0820, 8.6753],
-  OTHER: [20, 0],
+  RU: [61.5240, 105.3188], DE: [51.1657, 10.4515], FR: [46.6034, 1.8883],
+  SG: [1.3521, 103.8198], AE: [23.4241, 53.8478], KR: [35.9078, 127.7669],
+  ZA: [-30.5595, 22.9375], NG: [9.0820, 8.6753],
 };
 
-function geoToLatLng(geo: string): [number, number] {
-  const g = geo.toUpperCase().trim();
-  return COUNTRY_CENTROIDS[g] || COUNTRY_CENTROIDS.OTHER;
+function geoCenter(geo: string): [number, number] {
+  return COUNTRY_CENTROIDS[geo.toUpperCase().trim()] || [20, 0];
 }
 
-export default function HomePage() {
+function fmtTime(ts: string): string {
+  try {
+    const d = Date.now() - new Date(ts).getTime();
+    const m = Math.floor(d / 60000);
+    if (m < 1) return "now";
+    if (m < 60) return `${m}m`;
+    return `${Math.floor(m / 60)}h`;
+  } catch { return ts; }
+}
+
+function clockStr(): string {
+  return new Date().toLocaleTimeString("en-IN", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+function dotColor(direction?: string): string {
+  if (!direction) return "#6b7080";
+  const d = direction.toLowerCase();
+  if (d === "positive" || d === "beneficiary") return "#22c55e";
+  if (d === "negative" || d === "negative exposure") return "#ef4444";
+  if (d === "mixed" || d === "uncertain") return "#f59e0b";
+  return "#6b7080";
+}
+
+interface AffectedStock {
+  ticker: string;
+  company_name: string;
+  sector: string;
+  industry: string;
+  direct_or_indirect: string;
+  positive_or_negative: string;
+  confidence: number;
+  reasoning: string;
+  evidence_ids: string[];
+}
+
+export default function TerminalPage() {
+  const [clock, setClock] = useState(clockStr());
+  const [stale, setStale] = useState(false);
+  const [events, setEvents] = useState<IntelligenceEvent[]>([]);
+  const [connectors, setConnectors] = useState<ConnectorHealthItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [health, setHealth] = useState<any>(null);
-  const [events, setEvents] = useState<IntelligenceEvent[]>([]);
-  const [sources, setSources] = useState<SourceStat[]>([]);
-  const [connectors, setConnectors] = useState<ConnectorHealthItem[]>([]);
-  const [gdeltFeed, setGdeltFeed] = useState<IntelligenceEvent[]>([]);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [newIds, setNewIds] = useState<Set<string>>(new Set());
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL;
 
   const fetchAll = useCallback(async () => {
-    setLoading(true);
     setError(null);
+    const oldIds = new Set(events.map((e) => e.id));
     try {
-      const [h, e, s, c] = await Promise.all([
-        getHealth(),
-        getEvents({ page_size: "20" }),
-        getSourceStats(),
+      const [eData, cData] = await Promise.all([
+        getEvents({ page_size: "30" }),
         getConnectorHealth(),
       ]);
-      setHealth(h);
-      setEvents(e.items || []);
-      setSources(s || []);
-      setConnectors(c || []);
-      setGdeltFeed((e.items || []).filter((ev: IntelligenceEvent) =>
-        ev.source_name?.toLowerCase() === "gdelt" ||
-        ev.geography?.toUpperCase() === "GLOBAL"
-      ).slice(0, 10));
-      setLastUpdated(new Date());
+      setEvents(eData.items || []);
+      setConnectors(cData || []);
+      const freshIds = new Set((eData.items || []).map((e) => e.id));
+      const added = [...freshIds].filter((id) => !oldIds.has(id));
+      if (added.length > 0) {
+        setNewIds(new Set(added));
+        setTimeout(() => setNewIds(new Set()), 3000);
+      }
+      setStale(false);
     } catch (e: any) {
-      setError(e.message || "Failed to load dashboard data");
+      setError(e.message || "Failed to fetch");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [events]);
 
-  useEffect(() => { fetchAll(); }, [fetchAll]);
+  useEffect(() => { fetchAll(); const iv = setInterval(fetchAll, POLL_MS); return () => clearInterval(iv); }, []);
+
+  useEffect(() => { const iv = setInterval(() => setClock(clockStr()), 1000); return () => clearInterval(iv); }, []);
 
   useEffect(() => {
-    const interval = setInterval(fetchAll, 60000);
-    return () => clearInterval(interval);
-  }, [fetchAll]);
+    if (!stale) {
+      const t = setTimeout(() => setStale(true), STALE_MS);
+      return () => clearTimeout(t);
+    }
+  }, [stale, events]);
 
-  const totalItems = sources.reduce((sum, s) => sum + s.total_items, 0);
-  const mockItems = sources.reduce((sum, s) => sum + s.mock_items, 0);
-  const healthySources = sources.filter((s) => s.health_status === "healthy").length;
+  const selected = events.find((e) => e.id === selectedId) || events[0] || null;
+  const stocks: AffectedStock[] = (selected as any)?.affected_stocks || [];
 
-  const mapEvents: MapEvent[] = events.map((ev) => {
-    const [lat, lng] = geoToLatLng(ev.geography);
-    return {
-      id: ev.id,
-      title: ev.factual_summary,
-      lat,
-      lng,
-      impact_direction: ev.impact_direction,
-      confidence: ev.confidence,
-      source_name: ev.source_name,
-      timestamp: ev.timestamp,
-      geography: ev.geography,
-    };
-  });
+  const todayCount = events.filter((e) => {
+    try { return Date.now() - new Date(e.timestamp).getTime() < 86400000; } catch { return false; }
+  }).length;
 
   return (
-    <div className="page-container">
+    <div className="h-screen w-screen bg-[#0a0b10] text-fg flex flex-col overflow-hidden font-sans">
       {!apiUrl && (
-        <div className="mb-4 px-4 py-3 bg-accent-amber-bg border border-accent-amber-border rounded-lg text-sm text-accent-amber text-center">
-          ⚠ NEXT_PUBLIC_API_URL is not configured. Using fallback http://localhost:8000
+        <div className="px-3 py-1.5 bg-accent-amber-bg border-b border-accent-amber-border text-2xs text-accent-amber text-center shrink-0">
+          ⚠ NEXT_PUBLIC_API_URL not set — using http://localhost:8000
         </div>
       )}
 
-      {error && (
-        <div className="mb-4 card p-4 border-l-2 border-l-accent-red">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-sm font-medium text-accent-red">Failed to load dashboard</p>
-              <p className="text-xs text-fg-muted mt-1">{error}</p>
-            </div>
-            <button onClick={fetchAll} className="btn-primary text-xs shrink-0">Retry</button>
-          </div>
+      {/* ─── TOP BAR ───────────────────────────────────────────── */}
+      <div className="shrink-0 h-9 flex items-center justify-between px-4 border-b border-surface-border bg-[#0d0f16] text-2xs text-fg-dim">
+        <div className="flex items-center gap-4">
+          <span className="text-xs font-bold text-fg tracking-wider uppercase">FIOS</span>
+          <span className="font-mono text-fg-muted">{clock}</span>
+          <span className="text-fg-faint">|</span>
+          <span className="font-mono text-fg-dim">{todayCount}</span>
+          <span className="text-fg-faint">today</span>
         </div>
-      )}
-
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-xl font-bold text-fg">Dashboard</h1>
-          <p className="text-sm text-fg-dim mt-0.5">System overview and global intelligence</p>
-        </div>
-        <LiveIndicator label={lastUpdated ? `Updated ${relativeTime(lastUpdated.toISOString())}` : "Loading"} />
-      </div>
-
-      {loading && !health && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-          {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="card p-4 animate-pulse">
-              <div className="h-3 bg-surface-hover rounded w-1/3 mb-2" />
-              <div className="h-6 bg-surface-hover rounded w-1/2" />
-            </div>
-          ))}
-        </div>
-      )}
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <StatCard
-          label="System Status"
-          value={health?.status || "—"}
-          accent={health?.status === "ok" ? "green" : health?.status === "degraded" ? "amber" : "red"}
-          secondary={health?.mode != null ? `Mode: ${health.mode}` : undefined}
-        />
-        <StatCard
-          label="Intelligence Events"
-          value={events.length}
-          accent="cyan"
-          secondary="Last 24h"
-          mono
-        />
-        <StatCard
-          label="Active Sources"
-          value={`${healthySources}/${sources.length}`}
-          accent={healthySources === sources.length && sources.length > 0 ? "green" : "amber"}
-          secondary={`${totalItems} items`}
-        />
-        <StatCard
-          label="Evidence Items"
-          value={totalItems}
-          accent="blue"
-          secondary={`${mockItems} mock`}
-          mono
-        />
-      </div>
-
-      {error && (
-        <div className="card p-6 text-center text-fg-dim text-sm">
-          No data yet — run ingestion
-        </div>
-      )}
-
-      <div className="mb-6 card p-4">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="section-title mb-0">Global Event Map</h2>
-          <span className="text-2xs text-fg-dim">{mapEvents.length} events mapped</span>
-        </div>
-        <MapView events={mapEvents} onEventClick={(id) => window.open(`/intelligence`, "_self")} height={380} />
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-        <div>
-          <h2 className="section-title">Global Intelligence Feed</h2>
-          <div className="space-y-2 mt-3">
-            {loading && gdeltFeed.length === 0 ? (
-              [1, 2, 3, 4, 5].map((i) => (
-                <div key={i} className="card p-3 animate-pulse">
-                  <div className="h-4 bg-surface-hover rounded w-3/4 mb-2" />
-                  <div className="h-3 bg-surface-hover rounded w-1/2" />
-                </div>
-              ))
-            ) : gdeltFeed.length === 0 ? (
-              <div className="card p-6 text-center text-fg-dim text-sm">
-                No global intelligence events yet — run ingestion
-              </div>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5">
+            {connectors.length === 0 ? (
+              <span className="text-fg-faint">—</span>
             ) : (
-              gdeltFeed.map((ev) => (
-                <div key={ev.id} className="card p-3 hover:bg-surface-hover transition-colors">
-                  <div className="flex items-start justify-between gap-2 mb-1">
-                    <p className="text-sm font-medium text-fg leading-snug line-clamp-2 flex-1">
-                      {ev.factual_summary}
-                    </p>
-                    <ImpactBadge direction={ev.impact_direction} />
-                  </div>
-                  <div className="flex items-center gap-3 text-2xs text-fg-dim">
-                    <span className="badge-blue">{ev.source_name || ev.event_type?.replace("_", " ")}</span>
-                    <span>{relativeTime(ev.timestamp)}</span>
-                    <span>{ev.geography}</span>
-                    {ev.confidence != null && (
-                      <span className="font-mono">{Math.round(ev.confidence * 100)}%</span>
-                    )}
-                  </div>
-                </div>
+              connectors.slice(0, 8).map((c) => (
+                <span key={c.connector} className={`inline-block w-1.5 h-1.5 rounded-full ${c.status === "healthy" ? "bg-accent-green" : c.status === "degraded" ? "bg-accent-amber" : "bg-accent-red"}`}
+                  title={`${c.connector}: ${c.status}`} />
               ))
             )}
           </div>
-        </div>
-
-        <div>
-          <h2 className="section-title">Sector Impact</h2>
-          <div className="space-y-2 mt-3">
-            {loading && events.length === 0 ? (
-              [1, 2, 3, 4, 5].map((i) => (
-                <div key={i} className="card p-3 animate-pulse">
-                  <div className="h-4 bg-surface-hover rounded w-1/2 mb-2" />
-                  <div className="h-3 bg-surface-hover rounded w-1/3" />
-                </div>
-              ))
-            ) : events.length === 0 ? (
-              <div className="card p-6 text-center text-fg-dim text-sm">
-                No sector impact data yet — run ingestion
-              </div>
-            ) : (
-              events.slice(0, 8).map((ev) => (
-                <div key={ev.id} className="card p-3 hover:bg-surface-hover transition-colors">
-                  <div className="flex items-start justify-between gap-2 mb-1">
-                    <p className="text-sm font-medium text-fg leading-snug line-clamp-1 flex-1">
-                      {ev.factual_summary}
-                    </p>
-                    <ImpactBadge direction={ev.impact_direction} />
-                  </div>
-                  <div className="flex flex-wrap items-center gap-1.5 text-2xs text-fg-dim">
-                    {ev.sectors?.slice(0, 3).map((s) => (
-                      <span key={s} className="badge-neutral">{s}</span>
-                    ))}
-                    <span className="ml-auto font-mono">{relativeTime(ev.timestamp)}</span>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
+          <span className={`inline-block w-1.5 h-1.5 rounded-full ${stale ? "bg-accent-amber" : "bg-accent-green animate-pulse"}`} />
+          <span className="font-mono text-fg-muted">{stale ? "stale" : "live"}</span>
+          <span className="text-fg-faint">|</span>
+          <span className="text-fg-faint">
+            {loading ? "…" : events.length > 0 ? fmtTime(events[0].timestamp) : "—"}
+          </span>
         </div>
       </div>
 
-      <div className="mb-6">
-        <h2 className="section-title">Connector Status</h2>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mt-3">
-          {loading && connectors.length === 0 ? (
-            [1, 2, 3, 4, 5, 6].map((i) => (
-              <div key={i} className="card p-3 animate-pulse">
-                <div className="h-4 bg-surface-hover rounded w-2/3" />
+      {/* ─── MAIN CONTENT ──────────────────────────────────────── */}
+      <div className="flex-1 flex min-h-0 relative">
+
+        {/* World Map background layer */}
+        <div className="absolute inset-0 pointer-events-none opacity-[0.15]">
+          <ComposableMap projection="geoMercator" projectionConfig={{ scale: 130, center: [20, 20] }} style={{ width: "100%", height: "100%" }}>
+            <Geographies geography={GEO_URL}>
+              {({ geographies }) => geographies.map((geo) => (
+                <Geography key={geo.rsmKey} geography={geo}
+                  style={{ default: { fill: "#1a1d27", stroke: "#2e3140", strokeWidth: 0.3, outline: "none" }, hover: {}, pressed: {} }} />
+              ))}
+            </Geographies>
+            {(events || []).filter((e) => e.lat != null && e.lng != null).map((ev) => (
+              <Marker key={ev.id} coordinates={[ev.lng!, ev.lat!]}>
+                <circle r={ev.confidence ? Math.max(3, ev.confidence * 8) : 4} fill={dotColor(ev.impact_direction)} opacity={0.35} className="animate-ping" style={{ animationDuration: "2.5s" }} />
+                <circle r={ev.confidence ? Math.max(2, ev.confidence * 5) : 3} fill={dotColor(ev.impact_direction)} opacity={0.85} />
+              </Marker>
+            ))}
+          </ComposableMap>
+        </div>
+
+        {/* ─── LEFT RAIL — EVENT FEED ─────────────────────────── */}
+        <div className="w-[340px] shrink-0 border-r border-surface-border bg-[#0a0b10]/80 overflow-y-auto z-10">
+          <div className="px-3 py-2 text-2xs text-fg-dim uppercase tracking-wider border-b border-surface-border sticky top-0 bg-[#0a0b10]/90 z-10">
+            Live Feed
+            {error && <span className="ml-2 text-accent-red normal-case">error</span>}
+          </div>
+
+          {loading && events.length === 0 && (
+            <div className="space-y-1 p-3">
+              {[1,2,3,4,5,6,7,8].map((i) => (
+                <div key={i} className="h-14 bg-surface-hover rounded animate-pulse" />
+              ))}
+            </div>
+          )}
+
+          {events.length === 0 && !loading && (
+            <div className="p-6 text-center text-fg-dim text-xs">
+              No events yet — ingestion has not run
+            </div>
+          )}
+
+          {events.map((ev) => {
+            const isNew = newIds.has(ev.id);
+            const isSelected = ev.id === selectedId;
+            return (
+              <div key={ev.id}
+                className={`px-3 py-2 border-b border-surface-border cursor-pointer transition-colors
+                  ${isSelected ? "bg-surface-hover border-l-2 border-l-accent-blue" : "hover:bg-surface-hover border-l-2 border-l-transparent"}
+                  ${isNew ? "bg-accent-blue-bg/40" : ""}`}
+                onClick={() => setSelectedId(ev.id)}>
+                <div className="flex items-start justify-between gap-2">
+                  <p className={`text-xs leading-snug line-clamp-2 flex-1 ${isSelected ? "text-fg" : "text-fg-muted"}`}>
+                    {ev.factual_summary}
+                  </p>
+                  <span className="text-2xs text-fg-dim font-mono shrink-0 mt-0.5">{fmtTime(ev.timestamp)}</span>
+                </div>
+                <div className="flex items-center gap-2 mt-1 text-2xs text-fg-dim">
+                  <span className="text-accent-cyan">{ev.geography}</span>
+                  <span className="text-fg-faint">•</span>
+                  <span>{ev.event_type?.replace("_", " ")}</span>
+                  <span className="ml-auto font-mono">{ev.confidence != null ? Math.round(ev.confidence * 100) : "?"}%</span>
+                </div>
               </div>
-            ))
-          ) : connectors.length === 0 ? (
-            <div className="card p-6 text-center text-fg-dim text-sm col-span-full">
-              No connector data available — run ingestion
+            );
+          })}
+        </div>
+
+        {/* ─── RIGHT RAIL — INDIAN MARKET IMPACT ──────────────── */}
+        <div className="flex-1 overflow-y-auto z-10 p-4">
+          {!selected ? (
+            <div className="flex items-center justify-center h-full text-fg-dim text-sm">
+              {loading ? "Loading..." : "Click an event to see Indian market impact"}
             </div>
           ) : (
-            connectors.map((c) => {
-              const dotColor = c.status === "healthy" ? "bg-accent-green" : c.status === "degraded" ? "bg-accent-amber" : "bg-accent-red";
-              return (
-                <div key={c.connector} className="card p-3">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className={`inline-block w-2 h-2 rounded-full ${dotColor} ${c.status === "healthy" ? "animate-pulse" : ""}`} />
-                    <span className="text-sm font-medium text-fg capitalize">{c.connector.replace("_", " ")}</span>
-                  </div>
-                  <div className="text-2xs text-fg-dim space-y-0.5 ml-4">
-                    <span className={c.status === "healthy" ? "badge-green" : c.status === "degraded" ? "badge-amber" : "badge-red"}>
-                      {c.status}
-                    </span>
-                    {c.last_run_at && <p>Last: {relativeTime(c.last_run_at)}</p>}
-                    {c.consecutive_failures > 0 && (
-                      <p className="text-accent-red">{c.consecutive_failures} failure(s)</p>
-                    )}
+            <div className="max-w-2xl">
+              {/* Event headline */}
+              <div className="mb-4">
+                <div className="flex items-start gap-3">
+                  <span className={`mt-1 w-2.5 h-2.5 rounded-full shrink-0 ${dotColor(selected.impact_direction)}`} />
+                  <div>
+                    <h1 className="text-sm font-semibold text-fg leading-snug">{selected.factual_summary}</h1>
+                    <div className="flex items-center gap-3 mt-1.5 text-2xs text-fg-dim">
+                      <span className="badge-blue">{selected.event_type?.replace("_", " ")}</span>
+                      <span>{new Date(selected.timestamp).toLocaleString()}</span>
+                      <span>{selected.geography}</span>
+                      <span className="font-mono">{Math.round(selected.confidence * 100)}% confidence</span>
+                    </div>
                   </div>
                 </div>
-              );
-            })
+              </div>
+
+              {error && (
+                <div className="mb-3 px-3 py-2 bg-accent-red-bg border border-accent-red-border rounded text-2xs text-accent-red">
+                  {error}
+                </div>
+              )}
+
+              {/* Affected Sectors */}
+              <div className="mb-4">
+                <p className="text-2xs text-fg-dim uppercase tracking-wider mb-2">Affected Sectors</p>
+                {selected.sectors && selected.sectors.length > 0 ? (
+                  <div className="flex flex-wrap gap-1.5">
+                    {selected.sectors.map((s: string) => (
+                      <span key={s} className="px-2 py-0.5 rounded text-2xs font-medium bg-surface-alt text-fg-muted border border-surface-border-light">
+                        {s}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-2xs text-fg-dim">No sector data</p>
+                )}
+              </div>
+
+              {/* Affected Stocks */}
+              <div className="mb-4">
+                <p className="text-2xs text-fg-dim uppercase tracking-wider mb-2">
+                  Affected Stocks <span className="text-fg-faint normal-case">({stocks.length})</span>
+                </p>
+                {stocks.length > 0 ? (
+                  <div className="space-y-1">
+                    {stocks.map((s) => (
+                      <div key={s.ticker} className="px-3 py-2 rounded bg-surface-card border border-surface-border">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-fg font-mono">{s.ticker}</span>
+                            <span className="text-2xs text-fg-dim">{s.company_name}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <span className={`text-2xs px-1.5 py-0.5 rounded ${s.direct_or_indirect === "direct" ? "bg-accent-blue-bg text-accent-blue border border-accent-blue-border" : "bg-surface-alt text-fg-dim border border-surface-border"}`}>
+                              {s.direct_or_indirect === "direct" ? "DIRECT" : "INDIRECT"}
+                            </span>
+                            <span className={`text-2xs px-1.5 py-0.5 rounded ${s.positive_or_negative === "positive" ? "bg-accent-green-bg text-accent-green border border-accent-green-border" : "bg-accent-red-bg text-accent-red border border-accent-red-border"}`}>
+                              {s.positive_or_negative === "positive" ? "POSITIVE" : s.positive_or_negative === "negative" ? "NEGATIVE" : "UNCERTAIN"}
+                            </span>
+                            <span className="text-2xs font-mono text-fg-dim">{Math.round(s.confidence * 100)}%</span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3 mt-1 text-2xs text-fg-dim">
+                          {s.sector && <span className="badge-neutral">{s.sector}</span>}
+                          {s.reasoning && <span className="truncate flex-1">{s.reasoning}</span>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-2xs text-fg-dim">No stock impact data for this event</p>
+                )}
+              </div>
+
+              {/* Causal Chain */}
+              {(selected as any).causal_chain && (selected as any).causal_chain.length > 0 && (
+                <div className="mb-4">
+                  <p className="text-2xs text-fg-dim uppercase tracking-wider mb-2">Causal Chain</p>
+                  <div className="space-y-0.5">
+                    {(selected as any).causal_chain.map((step: any, i: number) => (
+                      <div key={i} className="flex items-start gap-2 px-3 py-2 bg-surface-card rounded border border-surface-border">
+                        <span className="text-2xs text-fg-dim font-mono shrink-0 mt-0.5">{step.step || i + 1}.</span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs text-fg">{step.cause}</p>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            <span className="text-fg-dim text-2xs">→</span>
+                            <p className="text-xs text-fg-muted">{step.effect}</p>
+                          </div>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className={`text-2xs px-1 py-0.5 rounded ${step.type === "verified" ? "bg-accent-green-bg text-accent-green" : step.type === "inferred" ? "bg-accent-amber-bg text-accent-amber" : "bg-surface-alt text-fg-dim"}`}>
+                              {(step.type || "uncertain").toUpperCase()}
+                            </span>
+                            {step.confidence && <span className="text-2xs text-fg-dim">{step.confidence}</span>}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Citations */}
+              {stocks.length > 0 && stocks.some((s) => s.evidence_ids && s.evidence_ids.length > 0) && (
+                <div className="mb-4">
+                  <p className="text-2xs text-fg-dim uppercase tracking-wider mb-2">Source Evidence</p>
+                  <div className="flex flex-wrap gap-1">
+                    {Array.from(new Set(stocks.flatMap((s) => s.evidence_ids || []))).map((eid) => (
+                      <span key={eid} className="font-mono text-2xs text-fg-dim bg-surface-card px-1.5 py-0.5 rounded border border-surface-border">
+                        {eid.length > 16 ? eid.slice(0, 16) + "…" : eid}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
           )}
         </div>
       </div>
-
-      {health && (
-        <div className="mb-6">
-          <h2 className="section-title">System Services</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-3">
-            {Object.entries(health.services || {}).map(([name, svc]: [string, any]) => (
-              <div key={name} className="card p-3">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-sm font-medium text-fg">{name}</span>
-                  <span className={`text-2xs ${svc.status === "ok" ? "badge-green" : svc.status === "degraded" ? "badge-amber" : "badge-red"}`}>
-                    {svc.status}
-                  </span>
-                </div>
-                {svc.detail && <p className="text-2xs text-fg-dim truncate">{svc.detail}</p>}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

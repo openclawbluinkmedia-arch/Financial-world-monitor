@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.modules.auth.service import AuthContext, AuthContextRequired
 from app.modules.evidence.models import Evidence
+from app.nifty100 import lookup_ticker, lookup_company
 from app.modules.intelligence import (
     CausalGraphEdge,
     ConfidenceScore,
@@ -98,6 +99,68 @@ def geo_to_lat_lng(geography: str) -> tuple[float, float]:
     return COUNTRY_LAT_LNG.get(geography.strip().upper(), (20.0, 0.0))
 
 
+def _derive_affected_stocks(e: IntelligenceEvent) -> list[dict[str, Any]]:
+    seen_tickers: set[str] = set()
+    stocks: list[dict[str, Any]] = []
+
+    entries: list[tuple[str, str, dict]] = []
+    for imp in e.direct_impacts or []:
+        entries.append(("direct", imp.get("direction", "unknown"), imp))
+    for imp in e.indirect_impacts or []:
+        entries.append(("indirect", imp.get("direction", "unknown"), imp))
+    for imp in e.possible_beneficiaries or []:
+        entries.append(("direct", "positive", imp))
+    for imp in e.possible_negative_exposures or []:
+        entries.append(("direct", "negative", imp))
+
+    for directness, direction, imp in entries:
+        ticker = (imp.get("ticker") or "").upper().strip()
+        entity_name = imp.get("entity", "") or imp.get("company_name", "")
+
+        company = None
+        if ticker:
+            hit = lookup_ticker(ticker)
+            if hit:
+                company = {"ticker": ticker, "company_name": hit[0], "sector": hit[1], "industry": hit[2]}
+        if not company and entity_name:
+            hit = lookup_company(entity_name)
+            if hit:
+                ticker = hit[0]
+                company = {"ticker": ticker, "company_name": hit[1], "sector": hit[2], "industry": hit[3]}
+
+        if not company and ticker:
+            company = {"ticker": ticker, "company_name": entity_name or ticker, "sector": "", "industry": ""}
+
+        if not company:
+            continue
+
+        if company["ticker"] in seen_tickers:
+            continue
+        seen_tickers.add(company["ticker"])
+
+        pos_or_neg = direction.lower()
+        if pos_or_neg in ("positive", "beneficiary", "beneficial"):
+            pos_or_neg = "positive"
+        elif pos_or_neg in ("negative", "negative exposure"):
+            pos_or_neg = "negative"
+        else:
+            pos_or_neg = "uncertain"
+
+        stocks.append({
+            "ticker": company["ticker"],
+            "company_name": company["company_name"],
+            "sector": company["sector"],
+            "industry": company["industry"],
+            "direct_or_indirect": directness,
+            "positive_or_negative": pos_or_neg,
+            "confidence": imp.get("confidence", e.confidence),
+            "reasoning": imp.get("reasoning", "") or imp.get("impact", ""),
+            "evidence_ids": imp.get("evidence_refs", []),
+        })
+
+    return stocks
+
+
 def serialize_intelligence_event(e: IntelligenceEvent) -> dict[str, Any]:
     lat, lng = geo_to_lat_lng(e.geography)
     return {
@@ -119,6 +182,7 @@ def serialize_intelligence_event(e: IntelligenceEvent) -> dict[str, Any]:
         "indirect_impacts": e.indirect_impacts,
         "possible_beneficiaries": e.possible_beneficiaries,
         "possible_negative_exposures": e.possible_negative_exposures,
+        "affected_stocks": _derive_affected_stocks(e),
         "impact_direction": e.impact_direction.value if hasattr(e.impact_direction, 'value') else str(e.impact_direction),
         "impact_horizon": e.impact_horizon.value if hasattr(e.impact_horizon, 'value') else str(e.impact_horizon),
         "causal_chain": e.causal_chain,

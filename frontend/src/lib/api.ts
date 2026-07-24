@@ -37,6 +37,18 @@ export function getHealth(): Promise<HealthData> {
 
 // ─── Intelligence Events ────────────────────────────────────────
 
+export interface AffectedStock {
+  ticker: string;
+  company_name: string;
+  sector: string;
+  industry: string;
+  direct_or_indirect: string;
+  positive_or_negative: string;
+  confidence: number;
+  reasoning: string;
+  evidence_ids: string[];
+}
+
 export interface IntelligenceEvent {
   id: string;
   event_id: string;
@@ -67,6 +79,7 @@ export interface IntelligenceEvent {
   original_url?: string;
   publisher?: string;
   title?: string;
+  affected_stocks?: AffectedStock[];
 }
 
 interface EventsResponse {
