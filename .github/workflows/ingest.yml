@@ -10,7 +10,30 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Trigger ingestion on Render
+        env:
+          BACKEND_URL: ${{ secrets.BACKEND_URL }}
+          TOKEN: ${{ secrets.INGEST_TOKEN }}
         run: |
-          curl -s -X POST "${{ secrets.RENDER_API_URL }}/api/ingest/run-all?token=${{ secrets.INGEST_TOKEN }}" \
-            --max-time 300 \
-            --fail-with-body
+          set -e
+          RESP=$(curl -s -w "\n%{http_code}" -X POST "$BACKEND_URL/api/ingestion/run-all" \
+            -H "X-Ingest-Token: $TOKEN" \
+            --max-time 120) || true
+          BODY=$(echo "$RESP" | head -n -1)
+          CODE=$(echo "$RESP" | tail -n 1)
+          echo "HTTP $CODE"
+          if [ "$CODE" != "200" ]; then
+            echo "response: $BODY"
+            echo "Retrying once after 60s..."
+            sleep 60
+            RESP=$(curl -s -w "\n%{http_code}" -X POST "$BACKEND_URL/api/ingestion/run-all" \
+              -H "X-Ingest-Token: $TOKEN" \
+              --max-time 120) || true
+            BODY=$(echo "$RESP" | head -n -1)
+            CODE=$(echo "$RESP" | tail -n 1)
+            echo "HTTP $CODE"
+            if [ "$CODE" != "200" ]; then
+              echo "response: $BODY"
+              exit 1
+            fi
+          fi
+          echo "$BODY"

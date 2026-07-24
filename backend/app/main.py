@@ -4,14 +4,11 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.health import router as health_router
 from app.config import get_settings
-from app.database import get_db
 from app.modules.evidence import router as evidence_router
 from app.modules.ingestion import router as ingestion_router
 from app.modules.intelligence import router as intelligence_router
@@ -91,47 +88,4 @@ async def root():
     }
 
 
-@app.post("/api/ingest/run-all")
-async def run_all_ingestion(token: str = Query(...)):
-    """Protected endpoint for external cron/scheduler.
-    Called by GitHub Actions every 20 min. Guarded by INGEST_TOKEN."""
-    if settings.INGEST_TOKEN and token != settings.INGEST_TOKEN:
-        raise HTTPException(403, "Invalid ingest token")
 
-    from app.database import async_session_factory
-    from app.modules.ingestion.service import IngestionService
-    import uuid
-
-    source_ids = {
-        "rbi": uuid.UUID("00000000-0000-0000-0000-000000000001"),
-        "sebi": uuid.UUID("00000000-0000-0000-0000-000000000002"),
-        "bse": uuid.UUID("00000000-0000-0000-0000-000000000003"),
-        "nse": uuid.UUID("00000000-0000-0000-0000-000000000004"),
-        "gdelt": uuid.UUID("00000000-0000-0000-0000-000000000005"),
-        "world_monitor": uuid.UUID("00000000-0000-0000-0000-000000000006"),
-    }
-
-    results = {}
-    async with async_session_factory() as db:
-        service = IngestionService(db)
-        for name, sid in source_ids.items():
-            try:
-                run = await service.run_ingestion(sid, name)
-                results[name] = {
-                    "status": run.status,
-                    "ingested": run.items_ingested,
-                    "failed": run.items_failed,
-                }
-                logger.info("run-all %s: %s", name, run.status)
-            except Exception as e:
-                results[name] = {"status": "error", "error": str(e)}
-                logger.error("run-all %s failed: %s", name, e)
-
-    return {
-        "results": results,
-        "summary": {
-            "total": len(results),
-            "ok": sum(1 for r in results.values() if r.get("status") in ("completed", "partial")),
-            "failed": sum(1 for r in results.values() if r.get("status") == "error"),
-        },
-    }

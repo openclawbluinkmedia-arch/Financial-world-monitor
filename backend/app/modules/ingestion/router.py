@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.database import get_db
 from app.modules.auth.service import AuthContext, AuthContextRequired
 from app.modules.ingestion.models import IngestionRun
@@ -46,6 +48,30 @@ async def all_connectors_health(
 ):
     service = IngestionService(db)
     return await service.get_all_health()
+
+
+_run_all_lock = asyncio.Lock()
+
+
+@router.post("/run-all")
+async def run_all_ingestion(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    settings = get_settings()
+    token = request.headers.get("X-Ingest-Token", "").strip()
+    if settings.INGEST_TOKEN and token != settings.INGEST_TOKEN:
+        raise HTTPException(401, "Missing or invalid X-Ingest-Token header")
+
+    if _run_all_lock.locked():
+        raise HTTPException(409, "Another ingestion run is already in progress")
+
+    async with _run_all_lock:
+        service = IngestionService(db)
+        result = await service.run_all_connectors()
+        if result.get("overlap"):
+            raise HTTPException(409, result["error"])
+        return result
 
 
 @router.post("/run/{connector_name}")

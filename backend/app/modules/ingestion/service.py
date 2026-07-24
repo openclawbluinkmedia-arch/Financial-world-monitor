@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import tempfile
+import time as time_mod
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -275,3 +276,184 @@ class IngestionService:
             }
             for h in health_list
         ]
+
+    SOURCE_IDS: dict[str, uuid.UUID] = {
+        "rbi": uuid.UUID("00000000-0000-0000-0000-000000000001"),
+        "sebi": uuid.UUID("00000000-0000-0000-0000-000000000002"),
+        "bse": uuid.UUID("00000000-0000-0000-0000-000000000003"),
+        "nse": uuid.UUID("00000000-0000-0000-0000-000000000004"),
+        "gdelt": uuid.UUID("00000000-0000-0000-0000-000000000005"),
+        "world_monitor": uuid.UUID("00000000-0000-0000-0000-000000000006"),
+    }
+
+    async def run_all_connectors(self) -> dict[str, Any]:
+        start = time_mod.monotonic()
+
+        from sqlalchemy import select as sa_select, text as sa_text
+
+        lock_result = await self.db.execute(sa_text("SELECT pg_try_advisory_xact_lock(42)"))
+        if not lock_result.scalar():
+            return {"error": "Another ingestion run is already in progress", "overlap": True}
+
+        connectors_summary: dict[str, dict[str, Any]] = {}
+        all_new_evidence_ids: list[str] = []
+
+        for name, sid in self.SOURCE_IDS.items():
+            connector_start = time_mod.monotonic()
+            connector = self.connectors.get(name)
+            if not connector:
+                connectors_summary[name] = {"status": "error", "error": "Unknown connector"}
+                continue
+
+            run = IngestionRun(
+                source_id=sid, status="running", started_at=datetime.now(timezone.utc)
+            )
+            self.db.add(run)
+            await self.db.flush()
+
+            items_fetched = 0
+            new_count = 0
+            dup_count = 0
+
+            try:
+                async with connector:
+                    result = await connector.fetch()
+                    items_fetched = len(result.items)
+
+                    for item in result.items:
+                        existing = await self.dedup_service.check_exact_duplicate(item.content_hash)
+                        if existing:
+                            await self.dedup_service.log_deduplication(
+                                item.evidence_id, existing.id, "exact", 1.0
+                            )
+                            dup_count += 1
+                            continue
+
+                        near_dup = await self.dedup_service.check_near_duplicate(item.near_dup_hash)
+                        if near_dup:
+                            await self.dedup_service.log_deduplication(
+                                item.evidence_id, near_dup.id, "near", 0.85
+                            )
+                            dup_count += 1
+                            continue
+
+                        evidence = Evidence(
+                            evidence_id=item.evidence_id,
+                            source_id=item.source_id,
+                            source_name=item.source_name,
+                            original_url=item.original_url,
+                            publisher=item.publisher,
+                            title=item.title,
+                            raw_content=item.raw_content,
+                            normalized_content=item.raw_content,
+                            content_hash=item.content_hash,
+                            near_dup_hash=item.near_dup_hash,
+                            publication_ts=item.publication_ts,
+                            ingestion_ts=datetime.now(timezone.utc),
+                            jurisdiction=item.jurisdiction,
+                            source_type=item.source_type,
+                            version=1,
+                            is_mock=item.is_mock,
+                            extra_metadata=str(item.metadata) if item.metadata else None,
+                        )
+                        self.db.add(evidence)
+                        await self.db.flush()
+                        all_new_evidence_ids.append(evidence.evidence_id)
+                        new_count += 1
+
+                run.items_ingested = new_count
+                run.items_failed = result.error_count
+                run.status = "completed" if result.error_count == 0 else "partial"
+                run.completed_at = datetime.now(timezone.utc)
+                await self._update_connector_health(name, True, None)
+
+            except Exception as e:
+                run.status = "failed"
+                run.error = str(e)
+                run.completed_at = datetime.now(timezone.utc)
+                await self._update_connector_health(name, False, str(e))
+                logger.error("run-all %s failed: %s", name, e, exc_info=True)
+
+            elapsed = time_mod.monotonic() - connector_start
+            connectors_summary[name] = {
+                "status": run.status,
+                "items_fetched": items_fetched,
+                "new": new_count,
+                "duplicates": dup_count,
+                "failed": run.items_failed or 0,
+                "error": run.error,
+                "duration_seconds": round(elapsed, 2),
+            }
+
+        # Step 2 — generate embeddings for new evidence
+        embed_count = 0
+        if all_new_evidence_ids:
+            try:
+                from app.ai.embeddings import embed_texts
+
+                result = await self.db.execute(
+                    sa_select(Evidence).where(Evidence.evidence_id.in_(all_new_evidence_ids))
+                )
+                new_evidence = result.scalars().all()
+
+                texts: list[str] = []
+                ev_map: dict[str, Evidence] = {}
+                for ev in new_evidence:
+                    t = f"{ev.title}\n\n{ev.raw_content[:2000]}"
+                    texts.append(t)
+                    ev_map[t] = ev
+
+                batch_size = 10
+                for i in range(0, len(texts), batch_size):
+                    batch = texts[i : i + batch_size]
+                    vectors = await embed_texts(batch)
+                    for t, vec in zip(batch, vectors):
+                        ev_map[t].embedding = vec
+                    embed_count += len(batch)
+                await self.db.flush()
+            except Exception as e:
+                logger.warning("Embedding generation skipped: %s", e)
+
+        # Step 3 — run intelligence pipeline on new items
+        pipeline_count = 0
+        if all_new_evidence_ids:
+            try:
+                from app.modules.intelligence.pipeline import IntelligencePipeline
+
+                result = await self.db.execute(
+                    sa_select(Evidence).where(Evidence.evidence_id.in_(all_new_evidence_ids))
+                )
+                new_evidence = result.scalars().all()
+                pipeline = IntelligencePipeline(self.db)
+                events = await pipeline.process_evidence_batch(new_evidence)
+                pipeline_count = len(events)
+            except Exception as e:
+                logger.warning("Intelligence pipeline skipped: %s", e)
+
+        total_duration = time_mod.monotonic() - start
+        return {
+            "connectors": connectors_summary,
+            "embeddings_generated": embed_count,
+            "intelligence_events_created": pipeline_count,
+            "total_duration_seconds": round(total_duration, 2),
+            "summary": {
+                "total_connectors": len(connectors_summary),
+                "ok": sum(
+                    1 for r in connectors_summary.values()
+                    if r.get("status") in ("completed", "partial")
+                ),
+                "failed": sum(
+                    1 for r in connectors_summary.values()
+                    if r.get("status") == "error"
+                ),
+                "total_items_fetched": sum(
+                    r["items_fetched"] for r in connectors_summary.values()
+                ),
+                "total_new": sum(
+                    r["new"] for r in connectors_summary.values()
+                ),
+                "total_duplicates": sum(
+                    r["duplicates"] for r in connectors_summary.values()
+                ),
+            },
+        }
