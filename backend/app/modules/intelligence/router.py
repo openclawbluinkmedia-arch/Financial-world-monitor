@@ -83,7 +83,23 @@ async def list_intelligence_events(
     }
 
 
+COUNTRY_LAT_LNG: dict[str, tuple[float, float]] = {
+    "IN": (20.5937, 78.9629), "US": (37.0902, -95.7129), "EU": (50.8503, 4.3517),
+    "GLOBAL": (20.0, 0.0), "UK": (55.3781, -3.4360), "JP": (36.2048, 138.2529),
+    "CN": (35.8617, 104.1954), "BR": (-14.2350, -51.9253), "AU": (-25.2744, 133.7751),
+    "RU": (61.5240, 105.3188), "CA": (56.1304, -106.3468), "DE": (51.1657, 10.4515),
+    "FR": (46.6034, 1.8883), "SG": (1.3521, 103.8198), "AE": (23.4241, 53.8478),
+    "SA": (23.8859, 45.0792), "CH": (46.8182, 8.2275), "HK": (22.3193, 114.1694),
+    "KR": (35.9078, 127.7669), "ZA": (-30.5595, 22.9375), "NG": (9.0820, 8.6753),
+}
+
+
+def geo_to_lat_lng(geography: str) -> tuple[float, float]:
+    return COUNTRY_LAT_LNG.get(geography.strip().upper(), (20.0, 0.0))
+
+
 def serialize_intelligence_event(e: IntelligenceEvent) -> dict[str, Any]:
+    lat, lng = geo_to_lat_lng(e.geography)
     return {
         "id": str(e.id),
         "event_id": e.event_id,
@@ -91,6 +107,8 @@ def serialize_intelligence_event(e: IntelligenceEvent) -> dict[str, Any]:
         "factual_summary": e.factual_summary,
         "timestamp": e.timestamp.isoformat() if e.timestamp else None,
         "geography": e.geography,
+        "lat": lat,
+        "lng": lng,
         "entities": e.entities,
         "sectors": e.sectors,
         "industries": e.industries,

@@ -1,233 +1,133 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useEffect, useState, useCallback } from "react";
+import { fetchApi, getPortfolios, type Portfolio } from "@/lib/api";
 import PageHeader from "../components/PageHeader";
 import StatCard from "../components/StatCard";
-import DataTable from "../components/DataTable";
-import ImpactBadge from "../components/ImpactBadge";
-
-interface Portfolio {
-  id: string;
-  portfolio_id: string;
-  name: string;
-  description: string | null;
-  created_at: string;
-  holdings_count: number;
-  total_market_value: number | null;
-}
-
-interface Holding {
-  id: string;
-  ticker: string;
-  name: string;
-  exchange: string;
-  quantity: number;
-  market_value: number | null;
-  allocation_pct: number;
-  sector: string | null;
-}
-
-function relativeTime(ts: string): string {
-  try {
-    const diff = Date.now() - new Date(ts).getTime();
-    const d = Math.floor(diff / 86400000);
-    const h = Math.floor(diff / 3600000);
-    if (d > 0) return `${d}d ago`;
-    if (h > 0) return `${h}h ago`;
-    return "today";
-  } catch {
-    return ts;
-  }
-}
+import LiveIndicator from "../components/LiveIndicator";
 
 export default function PortfolioPage() {
-  const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
   const [selected, setSelected] = useState<Portfolio | null>(null);
-  const [holdings, setHoldings] = useState<Holding[]>([]);
-  const [holdingsLoading, setHoldingsLoading] = useState(false);
 
-  const fetchPortfolios = useCallback(async () => {
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+
+  const fetchAll = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
-      const res = await fetch("/api/portfolios");
-      setPortfolios(await res.json());
-    } catch (e) {
-      console.error(e);
+      setPortfolios(await getPortfolios());
+    } catch (e: any) {
+      setError(e.message || "Failed to load portfolios");
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => {
-    fetchPortfolios();
-  }, [fetchPortfolios]);
+  useEffect(() => { fetchAll(); }, [fetchAll]);
 
-  const handleSelectPortfolio = async (p: Portfolio) => {
-    setSelected(p);
-    setHoldingsLoading(true);
-    try {
-      const res = await fetch(`/api/portfolios/${p.id}/holdings`);
-      setHoldings(await res.json());
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setHoldingsLoading(false);
-    }
-  };
-
-  const portfolioColumns = [
-    { key: "name", label: "Name", render: (row: Portfolio) => (
-      <div>
-        <p className="text-sm font-medium text-fg">{row.name}</p>
-        {row.description && (
-          <p className="text-2xs text-fg-dim truncate max-w-xs">{row.description}</p>
-        )}
-      </div>
-    )},
-    { key: "holdings_count", label: "Holdings", render: (row: Portfolio) => (
-      <span className="font-mono text-sm text-fg">{row.holdings_count}</span>
-    )},
-    {
-      key: "total_market_value",
-      label: "Market Value",
-      render: (row: Portfolio) => (
-        <span className="font-mono text-sm text-fg">
-          {row.total_market_value
-            ? `$${row.total_market_value.toLocaleString()}`
-            : "—"}
-        </span>
-      ),
-    },
-    {
-      key: "created_at",
-      label: "Created",
-      render: (row: Portfolio) => (
-        <span className="text-2xs text-fg-dim">{relativeTime(row.created_at)}</span>
-      ),
-    },
-    {
-      key: "actions",
-      label: "",
-      render: (row: Portfolio) => (
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            handleSelectPortfolio(row);
-          }}
-          className="btn-ghost text-2xs"
-        >
-          Holdings
-        </button>
-      ),
-    },
-  ];
-
-  const holdingColumns = [
-    { key: "ticker", label: "Ticker", render: (row: Holding) => (
-      <span className="font-mono text-sm text-fg font-medium">{row.ticker}</span>
-    )},
-    { key: "name", label: "Name" },
-    { key: "exchange", label: "Exchange", render: (row: Holding) => (
-      <span className="badge-neutral text-2xs">{row.exchange}</span>
-    )},
-    { key: "quantity", label: "Qty", render: (row: Holding) => (
-      <span className="font-mono text-sm text-fg">{row.quantity}</span>
-    )},
-    {
-      key: "market_value",
-      label: "Market Value",
-      render: (row: Holding) => (
-        <span className="font-mono text-sm text-fg">
-          {row.market_value ? `$${row.market_value.toLocaleString()}` : "—"}
-        </span>
-      ),
-    },
-    {
-      key: "allocation_pct",
-      label: "Allocation",
-      render: (row: Holding) => (
-        <span className="font-mono text-sm text-fg-muted">{row.allocation_pct}%</span>
-      ),
-    },
-    { key: "sector", label: "Sector", render: (row: Holding) => (
-      row.sector ? <span className="badge-neutral text-2xs">{row.sector}</span> : <span className="text-2xs text-fg-dim">—</span>
-    )},
-  ];
+  const totalValue = portfolios.reduce((s, p) => s + (p.total_value || 0), 0);
+  const totalHoldings = portfolios.reduce((s, p) => s + (p.holding_count || 0), 0);
 
   return (
     <div className="page-container">
-      <PageHeader
-        title="Portfolio"
-        subtitle={`${portfolios.length} portfolio(s)`}
+      {!apiUrl && (
+        <div className="mb-4 px-4 py-3 bg-accent-amber-bg border border-accent-amber-border rounded-lg text-sm text-accent-amber text-center">
+          ⚠ NEXT_PUBLIC_API_URL is not configured. Using fallback http://localhost:8000
+        </div>
+      )}
+
+      <PageHeader title="Portfolios" subtitle="Track holdings and exposure"
         actions={
-          <button onClick={() => fetchPortfolios()} className="btn-primary">
-            Refresh
-          </button>
+          <>
+            <LiveIndicator />
+            <button onClick={() => fetchAll()} className="btn-primary">Refresh</button>
+          </>
         }
       />
 
-      {/* Summary stats */}
+      {error && (
+        <div className="mb-4 card p-4 border-l-2 border-l-accent-red">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-medium text-accent-red">Failed to load</p>
+              <p className="text-xs text-fg-muted mt-1">{error}</p>
+            </div>
+            <button onClick={fetchAll} className="btn-primary text-xs shrink-0">Retry</button>
+          </div>
+        </div>
+      )}
+
+      {loading && portfolios.length === 0 && (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+          {[1,2,3].map((i) => <div key={i} className="card p-4 animate-pulse"><div className="h-3 bg-surface-hover rounded w-1/3 mb-2" /><div className="h-6 bg-surface-hover rounded w-1/2" /></div>)}
+        </div>
+      )}
+
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
         <StatCard label="Portfolios" value={portfolios.length} accent="blue" mono />
-        <StatCard
-          label="Total Holdings"
-          value={portfolios.reduce((s, p) => s + p.holdings_count, 0)}
-          accent="purple"
-          mono
-        />
-        <StatCard
-          label="Total Value"
-          value={
-            portfolios.some((p) => p.total_market_value)
-              ? `$${portfolios
-                  .reduce((s, p) => s + (p.total_market_value || 0), 0)
-                  .toLocaleString()}`
-              : "—"
-          }
-          accent="green"
-        />
+        <StatCard label="Total Holdings" value={totalHoldings} accent="purple" mono />
+        <StatCard label="Total Value" value={totalValue ? `₹${(totalValue / 1e7).toFixed(1)}Cr` : "—"} accent="green" mono />
       </div>
 
-      {/* Portfolio list */}
-      <div className="card mb-6">
+      <div className="card">
         <div className="card-header">
-          <span className="text-sm font-medium text-fg">Portfolios</span>
+          <span className="text-sm font-medium text-fg">Portfolio List</span>
         </div>
-        <DataTable
-          columns={portfolioColumns}
-          data={portfolios}
-          loading={loading}
-          emptyMessage="No portfolios found. Upload a CSV to get started."
-          onRowClick={(row) => handleSelectPortfolio(row)}
-        />
+        <div className="divide-y divide-surface-border">
+          {loading && portfolios.length === 0 ? (
+            [1,2,3].map((i) => (
+              <div key={i} className="card p-4 animate-pulse">
+                <div className="h-4 bg-surface-hover rounded w-1/3 mb-2" />
+                <div className="h-3 bg-surface-hover rounded w-1/4" />
+              </div>
+            ))
+          ) : portfolios.length === 0 ? (
+            <div className="p-6 text-center text-fg-dim text-sm">No portfolios yet</div>
+          ) : (
+            portfolios.map((p) => (
+              <div key={p.id} className="card p-4 hover:bg-surface-hover transition-colors cursor-pointer" onClick={() => setSelected(p)}>
+                <div className="flex items-start justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-fg">{p.name}</p>
+                    {p.description && <p className="text-2xs text-fg-dim mt-0.5">{p.description}</p>}
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm font-mono text-fg">{p.holding_count || 0} holdings</p>
+                    {p.total_value != null && <p className="text-2xs text-fg-dim">₹{(p.total_value / 1e7).toFixed(1)}Cr</p>}
+                  </div>
+                </div>
+                <div className="flex gap-3 mt-2 text-2xs text-fg-dim">
+                  {p.created_at && <span>Created: {new Date(p.created_at).toLocaleDateString()}</span>}
+                  {p.updated_at && <span>Updated: {new Date(p.updated_at).toLocaleDateString()}</span>}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
       </div>
 
-      {/* Holdings detail */}
       {selected && (
-        <div className="card">
-          <div className="card-header">
-            <div>
-              <span className="text-sm font-medium text-fg">
-                {selected.name} — Holdings
-              </span>
-              {selected.description && (
-                <p className="text-2xs text-fg-dim mt-0.5">{selected.description}</p>
-              )}
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50" onClick={() => setSelected(null)}>
+          <div className="card max-w-lg w-full" onClick={(e) => e.stopPropagation()}>
+            <div className="card-header">
+              <h3 className="text-sm font-semibold text-fg">{selected.name}</h3>
+              <button onClick={() => setSelected(null)} className="text-fg-dim hover:text-fg text-lg leading-none">✕</button>
             </div>
-            <button
-              onClick={() => setSelected(null)}
-              className="btn-ghost text-xs"
-            >
-              Close
-            </button>
+            <div className="card-body space-y-3">
+              {selected.description && <div><p className="text-2xs text-fg-dim">Description</p><p className="text-sm text-fg">{selected.description}</p></div>}
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div><p className="text-2xs text-fg-dim">Holdings</p><p className="font-mono text-fg">{selected.holding_count || 0}</p></div>
+                <div><p className="text-2xs text-fg-dim">Total Value</p><p className="font-mono text-fg">{selected.total_value != null ? `₹${(selected.total_value / 1e7).toFixed(1)}Cr` : "—"}</p></div>
+              </div>
+              <div className="flex gap-3 text-2xs text-fg-dim">
+                {selected.created_at && <span>Created: {new Date(selected.created_at).toLocaleString()}</span>}
+                {selected.updated_at && <span>Updated: {new Date(selected.updated_at).toLocaleString()}</span>}
+              </div>
+            </div>
           </div>
-          <DataTable
-            columns={holdingColumns}
-            data={holdings}
-            loading={holdingsLoading}
-            emptyMessage="No holdings in this portfolio."
-          />
         </div>
       )}
     </div>
